@@ -183,53 +183,51 @@ def render_certificate(name: str, results: dict, total: int, df: pd.DataFrame, v
         else:
             grade = "D"
 
-    st.markdown(f"""
-    <div style="
-        border: 4px double #d4af37;
-        border-radius: 20px;
-        padding: 40px 30px;
-        margin: 20px auto;
-        max-width: 600px;
-        text-align: center;
-        background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fffbeb 100%);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    ">
-        <div style="font-size:48px; margin-bottom:10px;">🏆</div>
-        <h1 style="
-            font-family: 'Georgia', serif;
-            color: #92400e;
-            font-size: 32px;
-            margin-bottom: 5px;
-        ">수 료 증</h1>
-        <p style="color:#b45309; font-size:14px; margin-bottom:25px;">KPCCW 2026 성경암송</p>
-        <hr style="border:1px solid #d4af37; margin: 15px 40px;">
-        <p style="font-size:28px; font-weight:bold; color:#1e3a5f; margin:20px 0;">
-            {name_display}
-        </p>
-        <p style="font-size:16px; color:#555; margin:10px 0;">
-            위 사람은 성경 암송 {total}구절을 모두 마쳤음을 증명합니다.
-        </p>
-        {"<p style='font-size:20px; color:#333; margin:15px 0;'>평균 정확도: <b>" + str(avg_score) + "%</b> (등급: <b>" + grade + "</b>)</p>" if has_dictation else ""}
-        <hr style="border:1px solid #d4af37; margin: 15px 40px;">
-        <p style="font-size:15px; color:#555; margin:5px 20px 0; font-style:italic;">
-            "이 율법책을 네 입에서 떠나지 말게 하며
-        </p>
-        <p style="font-size:15px; color:#555; margin:2px 20px 0; font-style:italic;">
-            주야로 그것을 묵상하여
-        </p>
-        <p style="font-size:15px; color:#555; margin:2px 20px 10px; font-style:italic;">
-            그 가운데 기록한 대로 다 지켜 행하라"
-        </p>
-        <p style="font-size:13px; color:#888; margin-bottom:15px;">— 여호수아 1:8</p>
-        <p style="font-size:16px; color:#92400e; font-weight:bold; margin-bottom:3px;">
-            축하합니다! 🎉
-        </p>
-        <p style="font-size:16px; color:#92400e; font-weight:bold; margin-top:0;">
-            하나님의 말씀을 마음에 새기는 귀한 시간이었습니다.
-        </p>
-        <p style="font-size:11px; color:#bbb; margin-top:20px;">KPCCW 2026 성경암송</p>
-    </div>
-    """, unsafe_allow_html=True)
+    score_html = ""
+    if has_dictation:
+        score_html = (
+            '<p style="font-size:20px; color:#333; margin:15px 0;">'
+            "평균 정확도: <b>" + str(avg_score) + "%</b> "
+            "(등급: <b>" + grade + "</b>)</p>"
+        )
+
+    html = (
+        '<div style="'
+        "border: 4px double #d4af37;"
+        "border-radius: 20px;"
+        "padding: 40px 30px;"
+        "margin: 20px auto;"
+        "max-width: 600px;"
+        "text-align: center;"
+        "background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fffbeb 100%);"
+        "box-shadow: 0 4px 20px rgba(0,0,0,0.1);"
+        '">'
+        '<div style="font-size:48px; margin-bottom:10px;">🏆</div>'
+        '<h1 style="font-family: Georgia, serif; color: #92400e; font-size: 32px; margin-bottom: 5px;">수 료 증</h1>'
+        '<p style="color:#b45309; font-size:14px; margin-bottom:25px;">KPCCW 2026 성경암송</p>'
+        '<hr style="border:1px solid #d4af37; margin: 15px 40px;">'
+        '<p style="font-size:28px; font-weight:bold; color:#1e3a5f; margin:20px 0;">'
+        + name_display
+        + "</p>"
+        '<p style="font-size:16px; color:#555; margin:10px 0;">'
+        "위 사람은 성경 암송 " + str(total) + "구절을 모두 마쳤음을 증명합니다.</p>"
+        + score_html
+        + '<hr style="border:1px solid #d4af37; margin: 15px 40px;">'
+        '<p style="font-size:15px; color:#555; margin:5px 20px 0; font-style:italic;">'
+        '"이 율법책을 네 입에서 떠나지 말게 하며</p>'
+        '<p style="font-size:15px; color:#555; margin:2px 20px 0; font-style:italic;">'
+        "주야로 그것을 묵상하여</p>"
+        '<p style="font-size:15px; color:#555; margin:2px 20px 10px; font-style:italic;">'
+        '그 가운데 기록한 대로 다 지켜 행하라"</p>'
+        '<p style="font-size:13px; color:#888; margin-bottom:15px;">— 여호수아 1:8</p>'
+        '<p style="font-size:16px; color:#92400e; font-weight:bold; margin-bottom:3px;">'
+        "축하합니다! 🎉</p>"
+        '<p style="font-size:16px; color:#92400e; font-weight:bold; margin-top:0;">'
+        "하나님의 말씀을 마음에 새기는 귀한 시간이었습니다.</p>"
+        '<p style="font-size:11px; color:#bbb; margin-top:20px;">KPCCW 2026 성경암송</p>'
+        "</div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
     if has_dictation:
         with st.expander("구절별 상세 결과 보기"):
