@@ -45,6 +45,7 @@ def init_session_state(df: pd.DataFrame, shuffle: bool):
     st.session_state.dictation_submitted = False
     st.session_state.dictation_input = ""
     st.session_state.all_done = False
+    st.session_state.hint_word = None
 
 
 def inject_font_persistence_js():
@@ -210,10 +211,16 @@ def render_certificate(name: str, results: dict, total: int, df: pd.DataFrame, v
         </p>
         {"<p style='font-size:20px; color:#333; margin:15px 0;'>평균 정확도: <b>" + str(avg_score) + "%</b> (등급: <b>" + grade + "</b>)</p>" if has_dictation else ""}
         <hr style="border:1px solid #d4af37; margin: 15px 40px;">
-        <p style="font-size:14px; color:#888;">
-            축하합니다! 하나님의 말씀을 마음에 새기는 귀한 시간이었습니다.
+        <p style="font-size:15px; color:#555; margin:15px 20px; font-style:italic;">
+            "이 율법책을 네 입에서 떠나지 말게 하며<br>
+            주야로 그것을 묵상하여<br>
+            그 가운데 기록한 대로 다 지켜 행하라"
         </p>
-        <p style="font-size:12px; color:#aaa; margin-top:15px;">B-Anki 성경 암기</p>
+        <p style="font-size:13px; color:#888; margin-bottom:15px;">— 여호수아 1:8</p>
+        <p style="font-size:16px; color:#92400e; font-weight:bold;">
+            축하합니다! 🎉<br>하나님의 말씀을 마음에 새기는 귀한 시간이었습니다.
+        </p>
+        <p style="font-size:11px; color:#bbb; margin-top:20px;">KPCCW 2026 성경암송</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -291,6 +298,17 @@ def main():
         .score-good {{ color: #22c55e; }}
         .score-ok {{ color: #f59e0b; }}
         .score-bad {{ color: #ef4444; }}
+        .hint-display {{
+            font-size: {font_size}px;
+            text-align: center;
+            padding: 15px;
+            background: #fffbeb;
+            border-radius: 12px;
+            border: 2px solid #f59e0b;
+            margin: 10px 0;
+            color: #92400e;
+            font-weight: bold;
+        }}
         div[data-testid="stMainBlockContainer"] {{
             max-width: 800px;
         }}
@@ -417,16 +435,22 @@ def render_main_page():
         remaining_skipped = st.session_state.skipped - st.session_state.completed
         if remaining_skipped:
             st.info(f"건너뛴 구절: {len(remaining_skipped)}개")
-            if st.button("건너뛴 구절 다시 학습", use_container_width=True):
-                skipped_list = list(remaining_skipped)
-                if st.session_state.shuffle:
-                    random.shuffle(skipped_list)
-                st.session_state.order = skipped_list
-                st.session_state.current_idx = 0
-                st.session_state.skipped = set()
-                st.session_state.show_verse = False
-                st.session_state.dictation_submitted = False
-                st.rerun()
+            skip_col1, skip_col2 = st.columns(2)
+            with skip_col1:
+                if st.button("건너뛴 구절 다시 학습", use_container_width=True):
+                    skipped_list = list(remaining_skipped)
+                    if st.session_state.shuffle:
+                        random.shuffle(skipped_list)
+                    st.session_state.order = skipped_list
+                    st.session_state.current_idx = 0
+                    st.session_state.skipped = set()
+                    st.session_state.show_verse = False
+                    st.session_state.dictation_submitted = False
+                    st.rerun()
+            with skip_col2:
+                if st.button("그냥 완료하기", type="primary", use_container_width=True):
+                    st.session_state.all_done = True
+                    st.rerun()
         else:
             st.session_state.all_done = True
             st.rerun()
@@ -456,13 +480,27 @@ def render_recitation_mode(verse_text: str, order: list, idx: int):
             unsafe_allow_html=True
         )
     else:
-        st.markdown(
-            '<div class="verse-hidden">👆 아래 버튼을 눌러 구절을 확인하세요</div>',
-            unsafe_allow_html=True
-        )
-        if st.button("구절 확인", type="primary", use_container_width=True):
-            st.session_state.show_verse = True
-            st.rerun()
+        if st.session_state.hint_word is not None:
+            st.markdown(
+                f'<div class="hint-display">💡 {st.session_state.hint_word}</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<div class="verse-hidden">👆 아래 버튼을 눌러 구절을 확인하세요</div>',
+                unsafe_allow_html=True
+            )
+        hint_col, show_col = st.columns([1, 2])
+        with hint_col:
+            if st.button("💡 힌트", use_container_width=True):
+                words = [w for w in verse_text.split() if w]
+                st.session_state.hint_word = random.choice(words) if words else ""
+                st.rerun()
+        with show_col:
+            if st.button("구절 확인", type="primary", use_container_width=True):
+                st.session_state.show_verse = True
+                st.session_state.hint_word = None
+                st.rerun()
 
     if st.session_state.show_verse:
         has_history = len(st.session_state.history) > 0
@@ -484,11 +522,13 @@ def render_recitation_mode(verse_text: str, order: list, idx: int):
                 st.session_state.skipped.add(order[idx])
                 st.session_state.current_idx += 1
                 st.session_state.show_verse = False
+                st.session_state.hint_word = None
                 st.rerun()
 
         with col2:
             if st.button("🔄 다시보기", use_container_width=True):
                 st.session_state.show_verse = False
+                st.session_state.hint_word = None
                 st.rerun()
 
         with col3:
@@ -499,6 +539,7 @@ def render_recitation_mode(verse_text: str, order: list, idx: int):
                 st.session_state.mode_results[order[idx]] = {"completed": True}
                 st.session_state.current_idx += 1
                 st.session_state.show_verse = False
+                st.session_state.hint_word = None
                 st.rerun()
     else:
         if len(st.session_state.history) > 0:
@@ -511,10 +552,16 @@ def render_dictation_mode(verse_text: str, order: list, idx: int, location: str)
     """Render the dictation (받아쓰기) mode card."""
     font_size = get_font_size()
 
-    st.markdown(
-        '<div class="verse-hidden">✍️ 아래에 기억나는 구절을 입력하세요</div>',
-        unsafe_allow_html=True
-    )
+    if st.session_state.get("hint_word") is not None:
+        st.markdown(
+            f'<div class="hint-display">💡 {st.session_state.hint_word}</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            '<div class="verse-hidden">✍️ 아래에 기억나는 구절을 입력하세요</div>',
+            unsafe_allow_html=True
+        )
 
     current_card_key = f"dictation_{order[idx]}"
 
@@ -525,6 +572,11 @@ def render_dictation_mode(verse_text: str, order: list, idx: int, location: str)
             height=150,
             placeholder="기억나는 대로 구절을 입력하세요..."
         )
+
+        if st.button("💡 힌트", use_container_width=True):
+            words = [w for w in verse_text.split() if w]
+            st.session_state.hint_word = random.choice(words) if words else ""
+            st.rerun()
 
         has_history = len(st.session_state.history) > 0
         if has_history:
@@ -547,12 +599,14 @@ def render_dictation_mode(verse_text: str, order: list, idx: int, location: str)
                 st.session_state.skipped.add(order[idx])
                 st.session_state.current_idx += 1
                 st.session_state.dictation_submitted = False
+                st.session_state.hint_word = None
                 st.rerun()
 
         with submit_col:
             if st.button("제출", type="primary", use_container_width=True):
                 st.session_state.dictation_input = user_input
                 st.session_state.dictation_submitted = True
+                st.session_state.hint_word = None
                 st.rerun()
 
     else:
@@ -638,6 +692,7 @@ def go_previous():
     st.session_state.show_verse = False
     st.session_state.dictation_submitted = False
     st.session_state.dictation_input = ""
+    st.session_state.hint_word = None
 
 
 if __name__ == "__main__":
