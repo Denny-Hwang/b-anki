@@ -239,7 +239,7 @@ def render_certificate(name: str, results: dict, total: int, df: pd.DataFrame, v
 
 
 def main():
-    st.set_page_config(page_title="B-Anki 성경 암기", page_icon="📖", layout="centered")
+    st.set_page_config(page_title="성경암기", page_icon="📖", layout="centered")
 
     font_size = get_font_size()
 
@@ -265,6 +265,7 @@ def main():
             display: flex;
             align-items: center;
             justify-content: center;
+            color: #1e293b;
         }}
         .verse-hidden {{
             font-size: {font_size}px;
@@ -293,6 +294,7 @@ def main():
             background: #f8fafc;
             border-radius: 12px;
             margin: 10px 0;
+            color: #1e293b;
         }}
         .score-display {{
             font-size: 48px;
@@ -311,7 +313,7 @@ def main():
             border-radius: 12px;
             border: 2px solid #f59e0b;
             margin: 10px 0;
-            color: #92400e;
+            color: #92400e !important;
             font-weight: bold;
         }}
         div[data-testid="stMainBlockContainer"] {{
@@ -320,7 +322,7 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("📖 B-Anki 성경 암기")
+    st.title("📖 성경암기")
 
     # --- Setup phase ---
     if "setup_done" not in st.session_state:
@@ -492,12 +494,12 @@ def render_recitation_mode(verse_text: str, order: list, idx: int):
             )
         else:
             st.markdown(
-                '<div class="verse-hidden">👆 아래 버튼을 눌러 구절을 확인하세요</div>',
+                '<div class="verse-hidden">👇 아래 버튼을 눌러 구절을 확인하세요</div>',
                 unsafe_allow_html=True
             )
         hint_col, show_col = st.columns([1, 2])
         with hint_col:
-            if st.button("💡 힌트", use_container_width=True):
+            if st.button("💡 랜덤 힌트", use_container_width=True):
                 words = [w for w in verse_text.split() if w]
                 st.session_state.hint_word = random.choice(words) if words else ""
                 st.rerun()
@@ -578,7 +580,7 @@ def render_dictation_mode(verse_text: str, order: list, idx: int, location: str)
             placeholder="기억나는 대로 구절을 입력하세요..."
         )
 
-        if st.button("💡 힌트", use_container_width=True):
+        if st.button("💡 랜덤 힌트", use_container_width=True):
             words = [w for w in verse_text.split() if w]
             st.session_state.hint_word = random.choice(words) if words else ""
             st.rerun()
