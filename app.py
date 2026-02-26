@@ -46,6 +46,7 @@ def init_session_state(df: pd.DataFrame, shuffle: bool):
     st.session_state.dictation_input = ""
     st.session_state.all_done = False
     st.session_state.hint_word = None
+    st.session_state.learn_phase = "reading"
 
 
 def inject_font_persistence_js():
@@ -352,9 +353,21 @@ def render_setup_page():
 
     version_label = st.selectbox("성경 버전", list(BIBLE_VERSIONS.keys()))
 
-    mode = st.radio("학습 모드", ["암송", "받아쓰기"],
-                    captions=["구절을 보며 암기합니다", "직접 타이핑하여 정확도를 확인합니다"],
-                    horizontal=True)
+    app_mode = st.radio("모드 선택", ["학습", "테스트"],
+                        captions=[
+                            "구절을 보고 암기한 후 가려서 확인합니다",
+                            "암기한 구절을 테스트합니다",
+                        ],
+                        horizontal=True)
+
+    test_sub_mode = None
+    if app_mode == "테스트":
+        test_sub_mode = st.radio("테스트 방식", ["암송", "받아쓰기"],
+                                 captions=[
+                                     "구절을 가리고 기억해서 확인합니다",
+                                     "직접 타이핑하여 정확도를 확인합니다",
+                                 ],
+                                 horizontal=True)
 
     shuffle = st.toggle("랜덤 순서", value=False)
 
@@ -372,7 +385,11 @@ def render_setup_page():
         st.session_state.loaded_file = selected_file
         st.session_state.loaded_version = version_label
         st.session_state.verse_col = verse_col
-        st.session_state.mode = mode
+        st.session_state.app_mode = app_mode
+        if app_mode == "테스트":
+            st.session_state.mode = test_sub_mode
+        else:
+            st.session_state.mode = "학습"
         st.session_state.user_name = user_name.strip()
         st.session_state.shuffle = shuffle
         st.rerun()
@@ -382,6 +399,7 @@ def render_main_page():
     """Render the main learning page."""
     selected_file = st.session_state.loaded_file
     verse_col = st.session_state.verse_col
+    app_mode = st.session_state.app_mode
     mode = st.session_state.mode
 
     df = load_csv(os.path.join(DATA_DIR, selected_file))
@@ -413,7 +431,11 @@ def render_main_page():
     # --- Progress ---
     completed_count = len(st.session_state.completed)
     st.progress(completed_count / total if total else 0)
-    st.caption(f"진행: {completed_count} / {total}  |  모드: {mode}")
+    if app_mode == "학습":
+        mode_display = "학습"
+    else:
+        mode_display = f"테스트 ({mode})"
+    st.caption(f"진행: {completed_count} / {total}  |  모드: {mode_display}")
 
     # --- Check completion ---
     if st.session_state.all_done:
@@ -471,10 +493,178 @@ def render_main_page():
     st.markdown("---")
     st.markdown(f'<div class="verse-location">📍 {location}</div>', unsafe_allow_html=True)
 
-    if mode == "암송":
+    if app_mode == "학습":
+        render_learning_mode(verse_text, order, idx)
+    elif mode == "암송":
         render_recitation_mode(verse_text, order, idx)
     else:
         render_dictation_mode(verse_text, order, idx, location)
+
+
+def render_learning_mode(verse_text: str, order: list, idx: int):
+    """Render the learning (학습) mode card.
+
+    Phases:
+      reading - verse is visible, user reads and memorises
+      hidden  - verse is hidden, user recalls (optional typing)
+      result  - typing comparison shown
+    """
+    if "learn_phase" not in st.session_state:
+        st.session_state.learn_phase = "reading"
+
+    phase = st.session_state.learn_phase
+
+    if phase == "reading":
+        # --- Phase 1: verse visible ---
+        st.markdown(
+            f'<div class="verse-text">{verse_text}</div>',
+            unsafe_allow_html=True,
+        )
+
+        has_history = len(st.session_state.history) > 0
+        if has_history:
+            col_prev, col1, col2, col3 = st.columns(4)
+        else:
+            col_prev = None
+            col1, col2, col3 = st.columns(3)
+
+        if has_history:
+            with col_prev:
+                if st.button("⬅️ 이전", use_container_width=True):
+                    go_previous()
+                    st.rerun()
+
+        with col1:
+            if st.button("⏭️ 건너뛰기", use_container_width=True):
+                st.session_state.history.append(order[idx])
+                st.session_state.skipped.add(order[idx])
+                st.session_state.current_idx += 1
+                st.session_state.learn_phase = "reading"
+                st.session_state.hint_word = None
+                st.rerun()
+
+        with col2:
+            if st.button("🙈 가리기", type="primary", use_container_width=True):
+                st.session_state.learn_phase = "hidden"
+                st.session_state.hint_word = None
+                st.rerun()
+
+        with col3:
+            if st.button("✅ 학습완료", use_container_width=True):
+                st.session_state.history.append(order[idx])
+                st.session_state.completed.add(order[idx])
+                st.session_state.skipped.discard(order[idx])
+                st.session_state.mode_results[order[idx]] = {"completed": True}
+                st.session_state.current_idx += 1
+                st.session_state.learn_phase = "reading"
+                st.session_state.hint_word = None
+                st.rerun()
+
+    elif phase == "hidden":
+        # --- Phase 2: verse hidden, self-test ---
+        if st.session_state.hint_word is not None:
+            st.markdown(
+                f'<div class="hint-display">💡 {st.session_state.hint_word}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="verse-hidden">🤔 구절을 떠올려 보세요</div>',
+                unsafe_allow_html=True,
+            )
+
+        hint_col, show_col = st.columns([1, 2])
+        with hint_col:
+            if st.button("💡 랜덤 힌트", use_container_width=True):
+                words = [w for w in verse_text.split() if w]
+                st.session_state.hint_word = random.choice(words) if words else ""
+                st.rerun()
+        with show_col:
+            if st.button("👀 구절 확인", type="primary", use_container_width=True):
+                st.session_state.learn_phase = "reading"
+                st.session_state.hint_word = None
+                st.rerun()
+
+        # Optional typing practice
+        st.markdown("---")
+        st.caption("✍️ 타이핑으로 확인해보기 (선택)")
+        current_card_key = f"learn_typing_{order[idx]}"
+        user_input = st.text_area(
+            "기억나는 구절을 입력하세요",
+            key=current_card_key,
+            height=120,
+            placeholder="기억나는 대로 입력하세요...",
+            label_visibility="collapsed",
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✍️ 확인하기", use_container_width=True):
+                st.session_state.dictation_input = user_input
+                st.session_state.learn_phase = "result"
+                st.session_state.hint_word = None
+                st.rerun()
+        with col2:
+            if st.button("✅ 학습완료", use_container_width=True, key="learn_done_hidden"):
+                st.session_state.history.append(order[idx])
+                st.session_state.completed.add(order[idx])
+                st.session_state.skipped.discard(order[idx])
+                st.session_state.mode_results[order[idx]] = {"completed": True}
+                st.session_state.current_idx += 1
+                st.session_state.learn_phase = "reading"
+                st.session_state.hint_word = None
+                st.rerun()
+
+    elif phase == "result":
+        # --- Phase 3: typing comparison ---
+        user_input = st.session_state.dictation_input
+        result = compute_word_match(user_input, verse_text)
+
+        score = result["score"]
+        score_class = "score-good" if score >= 80 else "score-ok" if score >= 50 else "score-bad"
+
+        st.markdown(
+            f'<div class="{score_class} score-display">{score}%</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"**{result['matched_words']}** / {result['total_words']} 단어 일치",
+        )
+
+        comparison_html = render_word_comparison(result)
+        st.markdown(
+            f'<div class="dictation-result">{comparison_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("**정답:**")
+        st.markdown(
+            f'<div class="verse-text">{verse_text}</div>',
+            unsafe_allow_html=True,
+        )
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("🔄 다시 연습", use_container_width=True):
+                st.session_state.learn_phase = "hidden"
+                st.session_state.dictation_input = ""
+                st.rerun()
+        with col2:
+            if st.button("👀 다시 읽기", use_container_width=True):
+                st.session_state.learn_phase = "reading"
+                st.session_state.dictation_input = ""
+                st.rerun()
+        with col3:
+            if st.button("✅ 학습완료", type="primary", use_container_width=True, key="learn_done_result"):
+                st.session_state.history.append(order[idx])
+                st.session_state.completed.add(order[idx])
+                st.session_state.skipped.discard(order[idx])
+                st.session_state.mode_results[order[idx]] = {"completed": True}
+                st.session_state.current_idx += 1
+                st.session_state.learn_phase = "reading"
+                st.session_state.dictation_input = ""
+                st.session_state.hint_word = None
+                st.rerun()
 
 
 def render_recitation_mode(verse_text: str, order: list, idx: int):
@@ -700,6 +890,7 @@ def go_previous():
     st.session_state.dictation_submitted = False
     st.session_state.dictation_input = ""
     st.session_state.hint_word = None
+    st.session_state.learn_phase = "reading"
 
 
 if __name__ == "__main__":
