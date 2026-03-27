@@ -1,7 +1,9 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import random
 import os
+import time
 
 BIBLE_VERSIONS = {
     "개역개정": "verse_krv",
@@ -23,7 +25,7 @@ def load_csv(file_path: str) -> pd.DataFrame:
 def get_available_files() -> list[str]:
     if not os.path.isdir(DATA_DIR):
         return []
-    files = [f for f in os.listdir(DATA_DIR) if f.endswith(".csv")]
+    files = [f for f in os.listdir(DATA_DIR) if f.endswith(".csv") and not f.startswith("bible_books_")]
     if DEFAULT_FILE in files:
         files.remove(DEFAULT_FILE)
         files.insert(0, DEFAULT_FILE)
@@ -239,11 +241,9 @@ def render_certificate(name: str, results: dict, total: int, df: pd.DataFrame, v
                     st.markdown(f"{icon} **{row['location']}** — {res['score']}%")
 
 
-def main():
-    st.set_page_config(page_title="성경암기", page_icon="📖", layout="centered")
-
+def inject_styles():
+    """Inject all CSS styles."""
     font_size = get_font_size()
-
     st.markdown(f"""
     <style>
         .verse-location {{
@@ -323,17 +323,35 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("📖 성경암기")
 
-    # --- Setup phase ---
-    if "setup_done" not in st.session_state:
-        st.session_state.setup_done = False
+def main():
+    st.set_page_config(page_title="B-Anki", page_icon="📖", layout="centered")
 
-    if not st.session_state.setup_done:
-        render_setup_page()
+    inject_styles()
+
+    # Theme selection
+    if st.session_state.get("selected_theme") is None:
+        render_theme_selection()
         return
 
-    render_main_page()
+    # Theme 1: 성경 구절 암기
+    if st.session_state.selected_theme == "verse":
+        st.title("📖 성경암기")
+        if "setup_done" not in st.session_state:
+            st.session_state.setup_done = False
+        if not st.session_state.setup_done:
+            render_setup_page()
+        else:
+            render_main_page()
+        return
+
+    # Theme 2: 단어 순서 외우기
+    if st.session_state.selected_theme == "ordering":
+        if not st.session_state.get("ord_game_started", False):
+            render_ordering_setup()
+        else:
+            render_ordering_game()
+        return
 
 
 def render_setup_page():
@@ -891,6 +909,593 @@ def go_previous():
     st.session_state.dictation_input = ""
     st.session_state.hint_word = None
     st.session_state.learn_phase = "reading"
+
+
+# ============================================================
+# Theme 2: 단어 순서 외우기
+# ============================================================
+
+def get_chosung(text: str) -> str:
+    """한글 문자열의 첫 글자 초성을 반환"""
+    CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ',
+               'ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ']
+    char = text[0]
+    if '가' <= char <= '힣':
+        code = ord(char) - ord('가')
+        return CHOSUNG[code // 588]
+    return char
+
+
+def get_hint_text(word: str, level: int) -> str:
+    """힌트 텍스트 생성 (level 1: 초성만, level 2: 초성 + 글자 수)"""
+    ch = get_chosung(word)
+    if level == 1:
+        return f"💡 다음 단어는 '{ch}'으로 시작합니다"
+    return f"⚠️ 마지막 기회! '{ch}'으로 시작하는 {len(word)}글자입니다"
+
+
+def get_ordering_files() -> list[tuple[str, str]]:
+    """data/ 폴더에서 bible_books_*.csv 파일 목록 반환"""
+    if not os.path.isdir(DATA_DIR):
+        return []
+    results = []
+    for f in sorted(os.listdir(DATA_DIR)):
+        if f.startswith("bible_books_") and f.endswith(".csv"):
+            results.append(f)
+    return results
+
+
+def load_ordering_csv(file_path: str) -> list[str]:
+    """순서 외우기용 CSV 로드. order 컬럼 기준 정렬 후 name_ko 리스트 반환"""
+    df = pd.read_csv(file_path)
+    df = df.sort_values("order").reset_index(drop=True)
+    return df["name_ko"].tolist()
+
+
+def load_ordering_csv_from_upload(uploaded_file) -> list[str]:
+    """업로드된 CSV에서 단어 목록 로드 (utf-8, cp949 대응)"""
+    import io
+    raw = uploaded_file.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("cp949")
+    df = pd.read_csv(io.StringIO(text))
+    required = {"order", "name_ko", "name_en"}
+    if not required.issubset(set(df.columns)):
+        return None
+    df = df.sort_values("order").reset_index(drop=True)
+    return df["name_ko"].tolist()
+
+
+def reset_ordering_state():
+    """테마 2 session_state 초기화"""
+    keys = [k for k in st.session_state.keys() if k.startswith("ord_")]
+    for k in keys:
+        del st.session_state[k]
+
+
+def render_bgm_player(is_playing: bool):
+    """Web Audio API 기반 BGM 재생/정지"""
+    if is_playing:
+        components.html("""
+        <div id="bgm-container"></div>
+        <script>
+        (function() {
+            if (window._bgmPlaying) return;
+            window._bgmPlaying = true;
+
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+            const melody = [
+                [261.63, 0.4], [329.63, 0.4], [392.00, 0.4], [523.25, 0.6],
+                [392.00, 0.4], [329.63, 0.4], [261.63, 0.6],
+                [293.66, 0.4], [349.23, 0.4], [440.00, 0.4], [523.25, 0.6],
+                [440.00, 0.4], [349.23, 0.4], [293.66, 0.6],
+            ];
+            let noteIndex = 0;
+
+            function playNote() {
+                if (!window._bgmPlaying) return;
+
+                const [freq, dur] = melody[noteIndex % melody.length];
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+
+                gain.gain.setValueAtTime(0, ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + dur);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + dur);
+
+                noteIndex++;
+                setTimeout(playNote, dur * 1000);
+            }
+
+            playNote();
+        })();
+        </script>
+        """, height=0)
+    else:
+        components.html("""
+        <script>
+        window._bgmPlaying = false;
+        </script>
+        """, height=0)
+
+
+def render_theme_selection():
+    """앱 최초 진입 시 테마 카드 2개를 표시"""
+    st.markdown("""
+    <style>
+    .theme-card {
+        border: 2px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 30px 20px;
+        text-align: center;
+        background: #ffffff;
+        min-height: 200px;
+    }
+    .theme-card h3 { margin-top: 10px; }
+    .theme-card p { color: #64748b; font-size: 14px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<h1 style='text-align:center;'>📖 B-Anki</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#64748b; font-size:18px;'>성경 암기 훈련 도우미</p>", unsafe_allow_html=True)
+    st.markdown("")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        <div class="theme-card">
+            <div style="font-size:48px;">📜</div>
+            <h3>테마 1</h3>
+            <h4>성경구절 암기</h4>
+            <p>구절을 보고 학습/테스트하는 플래시카드</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("📜 성경구절 암기", use_container_width=True, type="primary"):
+            st.session_state.selected_theme = "verse"
+            st.rerun()
+
+    with col2:
+        st.markdown("""
+        <div class="theme-card">
+            <div style="font-size:48px;">🔢</div>
+            <h3>테마 2</h3>
+            <h4>단어순서 외우기</h4>
+            <p>성경 책 이름의 순서를 맞추는 게임</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🔢 단어순서 외우기", use_container_width=True, type="primary"):
+            st.session_state.selected_theme = "ordering"
+            st.rerun()
+
+
+def render_ordering_setup():
+    """단어 순서 외우기 설정 화면"""
+    st.markdown("### 🔢 단어 순서 외우기")
+    st.markdown("---")
+
+    user_name = st.text_input("닉네임 (선택사항)", placeholder="닉네임을 입력하세요", key="ord_name_input")
+
+    st.markdown("**데이터 선택**")
+    data_source = st.radio("데이터 소스", ["기본 데이터셋", "CSV 파일 업로드"],
+                           horizontal=True, label_visibility="collapsed")
+
+    word_list = None
+    dataset_name = ""
+
+    if data_source == "기본 데이터셋":
+        dataset_options = {
+            "구약 39권": ["bible_books_ot.csv"],
+            "신약 27권": ["bible_books_nt.csv"],
+            "구약+신약 66권": ["bible_books_ot.csv", "bible_books_nt.csv"],
+        }
+        selected_dataset = st.selectbox("데이터셋", list(dataset_options.keys()))
+        dataset_name = selected_dataset
+        files = dataset_options[selected_dataset]
+        combined = []
+        for f in files:
+            path = os.path.join(DATA_DIR, f)
+            if os.path.exists(path):
+                combined.extend(load_ordering_csv(path))
+        if combined:
+            word_list = combined
+    else:
+        uploaded = st.file_uploader("CSV 파일 업로드 (order, name_ko, name_en)", type=["csv"])
+        if uploaded:
+            result = load_ordering_csv_from_upload(uploaded)
+            if result is None:
+                st.error("CSV에 order, name_ko, name_en 컬럼이 필요합니다.")
+            else:
+                word_list = result
+                dataset_name = uploaded.name
+
+    st.markdown("**게임 모드**")
+    game_mode = st.radio("모드", ["🖱️ 클릭 배열 - 순서대로 클릭하여 배열",
+                                   "✍️ 받아쓰기 - 순서대로 직접 입력"],
+                         label_visibility="collapsed")
+
+    max_wrong = st.number_input("허용 오답 수", min_value=1, max_value=10, value=3)
+
+    bgm_on = st.toggle("🎵 배경음악", value=False)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🎮 게임 시작", type="primary", use_container_width=True):
+            if word_list is None or len(word_list) == 0:
+                st.error("데이터를 선택해주세요.")
+            else:
+                st.session_state.ord_game_started = True
+                st.session_state.ord_username = user_name.strip()
+                st.session_state.ord_mode = "클릭 배열" if "클릭" in game_mode else "받아쓰기"
+                st.session_state.ord_max_wrong = max_wrong
+                st.session_state.ord_wrong_count = 0
+                st.session_state.ord_current_index = 0
+                st.session_state.ord_correct_answers = []
+                st.session_state.ord_word_list = word_list
+                shuffled = list(range(len(word_list)))
+                random.shuffle(shuffled)
+                st.session_state.ord_shuffled_indices = shuffled
+                st.session_state.ord_start_time = time.time()
+                st.session_state.ord_game_over = False
+                st.session_state.ord_game_clear = False
+                st.session_state.ord_bgm_on = bgm_on
+                st.session_state.ord_show_hint = False
+                st.session_state.ord_dataset_name = dataset_name
+                st.session_state.ord_last_feedback = None
+                st.session_state.ord_typing_key = 0
+                st.rerun()
+    with col2:
+        if st.button("🏠 돌아가기", use_container_width=True):
+            st.session_state.selected_theme = None
+            st.rerun()
+
+
+def render_ordering_game():
+    """게임 메인 분기"""
+    if st.session_state.get("ord_game_clear", False):
+        render_ordering_certificate()
+        return
+    if st.session_state.get("ord_game_over", False):
+        render_ordering_game_over()
+        return
+
+    # BGM
+    if st.session_state.get("ord_bgm_on", False):
+        render_bgm_player(True)
+
+    if st.session_state.ord_mode == "클릭 배열":
+        render_click_mode()
+    else:
+        render_typing_mode()
+
+
+def _render_ordering_header():
+    """게임 공통 헤더 (제목, 하트, 진행률, BGM 토글, 처음으로)"""
+    word_list = st.session_state.ord_word_list
+    total = len(word_list)
+    current = st.session_state.ord_current_index
+    max_wrong = st.session_state.ord_max_wrong
+    wrong_count = st.session_state.ord_wrong_count
+    remaining = max_wrong - wrong_count
+    dataset_name = st.session_state.ord_dataset_name
+    mode_label = "🖱️ 클릭 배열" if st.session_state.ord_mode == "클릭 배열" else "✍️ 받아쓰기"
+
+    hcol1, hcol2 = st.columns([3, 1])
+    with hcol1:
+        st.markdown(f"### 🔢 단어 순서 외우기")
+        st.caption(f"📊 {dataset_name} | {mode_label}")
+    with hcol2:
+        bgm_val = st.toggle("🎵 BGM", value=st.session_state.get("ord_bgm_on", False), key="bgm_toggle_game")
+        if bgm_val != st.session_state.get("ord_bgm_on", False):
+            st.session_state.ord_bgm_on = bgm_val
+            if not bgm_val:
+                render_bgm_player(False)
+            st.rerun()
+        if st.button("🏠 처음으로", use_container_width=True, key="home_btn"):
+            reset_ordering_state()
+            st.session_state.selected_theme = None
+            st.rerun()
+
+    # Hearts
+    hearts = "❤️" * remaining + "🖤" * wrong_count
+    st.markdown(f'<div style="font-size:24px; text-align:center;">{hearts} (남은 기회: {remaining}/{max_wrong})</div>', unsafe_allow_html=True)
+
+    # Progress
+    st.progress(current / total if total else 0)
+    st.caption(f"진행률: {current} / {total}")
+
+
+def render_click_mode():
+    """클릭 배열 모드"""
+    _render_ordering_header()
+
+    word_list = st.session_state.ord_word_list
+    total = len(word_list)
+    current = st.session_state.ord_current_index
+    max_wrong = st.session_state.ord_max_wrong
+    wrong_count = st.session_state.ord_wrong_count
+    remaining = max_wrong - wrong_count
+
+    # Feedback from last action
+    feedback = st.session_state.get("ord_last_feedback")
+    if feedback:
+        if feedback["type"] == "success":
+            st.success(feedback["msg"])
+        else:
+            st.error(feedback["msg"])
+        st.session_state.ord_last_feedback = None
+
+    # Auto-hint when remaining == 1
+    if remaining == 1 and current < total:
+        hint_text = get_hint_text(word_list[current], 2)
+        st.warning(hint_text)
+
+    st.markdown("---")
+
+    # Button grid - show remaining words in shuffled order
+    chosen_set = set(range(current))  # indices already answered
+    remaining_indices = [i for i in st.session_state.ord_shuffled_indices if i not in chosen_set]
+
+    cols_per_row = 4
+    rows = [remaining_indices[i:i+cols_per_row] for i in range(0, len(remaining_indices), cols_per_row)]
+
+    for row in rows:
+        cols = st.columns(cols_per_row)
+        for j, word_idx in enumerate(row):
+            with cols[j]:
+                word = word_list[word_idx]
+                # Highlight when auto-hint and this is the correct answer
+                btn_type = "primary" if (remaining == 1 and word_idx == current) else "secondary"
+                if st.button(word, key=f"word_btn_{word_idx}_{current}", use_container_width=True, type=btn_type):
+                    if word_idx == current:
+                        st.session_state.ord_correct_answers.append(word)
+                        st.session_state.ord_current_index += 1
+                        st.session_state.ord_show_hint = False
+                        if st.session_state.ord_current_index >= total:
+                            st.session_state.ord_game_clear = True
+                        st.session_state.ord_last_feedback = {"type": "success", "msg": f"✅ 정답! {current+1}.{word}"}
+                        st.rerun()
+                    else:
+                        st.session_state.ord_wrong_count += 1
+                        if st.session_state.ord_wrong_count >= max_wrong:
+                            st.session_state.ord_game_over = True
+                        st.session_state.ord_last_feedback = {"type": "error", "msg": f"❌ 틀렸습니다! '{word}'는 {current+1}번이 아닙니다"}
+                        st.rerun()
+
+    # Answer chain
+    st.markdown("---")
+    if st.session_state.ord_correct_answers:
+        chain = " → ".join([f"{i+1}.{w}" for i, w in enumerate(st.session_state.ord_correct_answers)])
+        st.markdown(f"""<div style="font-size:16px; line-height:2; padding:15px; background:#f0fdf4;
+            border-radius:12px; border-left:4px solid #22c55e; margin:10px 0;">
+            ✅ 정답 배열:<br>{chain}</div>""", unsafe_allow_html=True)
+
+    # Hint button
+    if current < total:
+        if st.button("💡 힌트 보기", use_container_width=True):
+            st.session_state.ord_show_hint = True
+            st.rerun()
+        if st.session_state.get("ord_show_hint", False):
+            st.info(get_hint_text(word_list[current], 1))
+
+
+def render_typing_mode():
+    """받아쓰기 모드"""
+    _render_ordering_header()
+
+    word_list = st.session_state.ord_word_list
+    total = len(word_list)
+    current = st.session_state.ord_current_index
+    max_wrong = st.session_state.ord_max_wrong
+    wrong_count = st.session_state.ord_wrong_count
+    remaining = max_wrong - wrong_count
+
+    # Feedback
+    feedback = st.session_state.get("ord_last_feedback")
+    if feedback:
+        if feedback["type"] == "success":
+            st.success(feedback["msg"])
+        else:
+            st.error(feedback["msg"])
+        st.session_state.ord_last_feedback = None
+
+    # Auto-hint
+    if remaining == 1 and current < total:
+        st.warning(get_hint_text(word_list[current], 2))
+
+    st.markdown("---")
+
+    # Show correct answers so far
+    if st.session_state.ord_correct_answers:
+        chain = " → ".join([f"{i+1}.{w}" for i, w in enumerate(st.session_state.ord_correct_answers)])
+        st.markdown(f"""<div style="font-size:16px; line-height:2; padding:15px; background:#f0fdf4;
+            border-radius:12px; border-left:4px solid #22c55e; margin:10px 0;">
+            ✅ 지금까지 맞춘 단어:<br>{chain}</div>""", unsafe_allow_html=True)
+
+    if current < total:
+        st.markdown(f"**📝 {current+1}번째 단어를 입력하세요:**")
+        typing_key = st.session_state.get("ord_typing_key", 0)
+        user_input = st.text_input("단어 입력", key=f"ord_typing_{typing_key}", label_visibility="collapsed",
+                                   placeholder="단어를 입력하세요...")
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            if st.button("확인", type="primary", use_container_width=True) or False:
+                answer = word_list[current]
+                if user_input.strip() == answer:
+                    st.session_state.ord_correct_answers.append(answer)
+                    st.session_state.ord_current_index += 1
+                    st.session_state.ord_show_hint = False
+                    st.session_state.ord_typing_key = typing_key + 1
+                    if st.session_state.ord_current_index >= total:
+                        st.session_state.ord_game_clear = True
+                    st.session_state.ord_last_feedback = {"type": "success", "msg": f"✅ 정답! {current+1}.{answer}"}
+                    st.rerun()
+                elif user_input.strip():
+                    st.session_state.ord_wrong_count += 1
+                    st.session_state.ord_typing_key = typing_key + 1
+                    if st.session_state.ord_wrong_count >= max_wrong:
+                        st.session_state.ord_game_over = True
+                    st.session_state.ord_last_feedback = {"type": "error", "msg": "❌ 틀렸습니다!"}
+                    st.rerun()
+        with col2:
+            if st.button("💡 힌트 보기", use_container_width=True, key="hint_typing"):
+                st.session_state.ord_show_hint = True
+                st.rerun()
+
+        if st.session_state.get("ord_show_hint", False):
+            st.info(get_hint_text(word_list[current], 1))
+
+
+def render_ordering_game_over():
+    """게임 오버 화면"""
+    st.markdown("<h2 style='text-align:center;'>😢 게임 오버</h2>", unsafe_allow_html=True)
+
+    word_list = st.session_state.ord_word_list
+    total = len(word_list)
+    matched = len(st.session_state.ord_correct_answers)
+
+    st.markdown(f"<p style='text-align:center; font-size:20px;'>{matched} / {total} 단어까지 맞췄습니다</p>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("**📋 전체 정답 목록:**")
+    items = [f"{i+1}.{w}" for i, w in enumerate(word_list)]
+    # Display in rows of 5
+    for i in range(0, len(items), 5):
+        st.markdown("  ".join(items[i:i+5]))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 다시 도전하기", type="primary", use_container_width=True):
+            word_list_saved = st.session_state.ord_word_list
+            mode = st.session_state.ord_mode
+            max_wrong = st.session_state.ord_max_wrong
+            username = st.session_state.ord_username
+            bgm = st.session_state.ord_bgm_on
+            dataset = st.session_state.ord_dataset_name
+            reset_ordering_state()
+            st.session_state.selected_theme = "ordering"
+            st.session_state.ord_game_started = True
+            st.session_state.ord_username = username
+            st.session_state.ord_mode = mode
+            st.session_state.ord_max_wrong = max_wrong
+            st.session_state.ord_wrong_count = 0
+            st.session_state.ord_current_index = 0
+            st.session_state.ord_correct_answers = []
+            st.session_state.ord_word_list = word_list_saved
+            shuffled = list(range(len(word_list_saved)))
+            random.shuffle(shuffled)
+            st.session_state.ord_shuffled_indices = shuffled
+            st.session_state.ord_start_time = time.time()
+            st.session_state.ord_game_over = False
+            st.session_state.ord_game_clear = False
+            st.session_state.ord_bgm_on = bgm
+            st.session_state.ord_show_hint = False
+            st.session_state.ord_dataset_name = dataset
+            st.session_state.ord_last_feedback = None
+            st.session_state.ord_typing_key = 0
+            st.rerun()
+    with col2:
+        if st.button("🏠 처음으로", use_container_width=True, key="home_gameover"):
+            reset_ordering_state()
+            st.session_state.selected_theme = None
+            st.rerun()
+
+
+def render_ordering_certificate():
+    """게임 클리어 인증서 화면"""
+    st.balloons()
+
+    elapsed = time.time() - st.session_state.ord_start_time
+    minutes = int(elapsed // 60)
+    seconds = int(elapsed % 60)
+    time_str = f"{minutes}분 {seconds}초"
+
+    wrong_count = st.session_state.ord_wrong_count
+    name = st.session_state.ord_username if st.session_state.ord_username else "익명의 도전자"
+    dataset = st.session_state.ord_dataset_name
+    mode = st.session_state.ord_mode
+
+    if wrong_count == 0:
+        comment = "완벽합니다! 🏆"
+    elif wrong_count <= 2:
+        comment = "훌륭합니다! 거의 완벽한 암기력! ⭐"
+    else:
+        comment = "수고하셨습니다! 다음엔 더 잘할 수 있어요! 💪"
+
+    html = (
+        '<div style="'
+        'border: 4px double #d4af37;'
+        'border-radius: 20px;'
+        'padding: 40px 30px;'
+        'margin: 20px auto;'
+        'max-width: 600px;'
+        'text-align: center;'
+        'background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fffbeb 100%);'
+        'box-shadow: 0 4px 20px rgba(0,0,0,0.1);'
+        '">'
+        '<div style="font-size:48px; margin-bottom:10px;">✨</div>'
+        '<h1 style="font-family: Georgia, serif; color: #92400e; font-size: 28px; margin-bottom: 5px;">단어 순서 암기 인증서</h1>'
+        '<hr style="border:1px solid #d4af37; margin: 15px 40px;">'
+        f'<p style="font-size:28px; font-weight:bold; color:#1e3a5f; margin:20px 0;">{name}</p>'
+        f'<p style="font-size:16px; color:#555;">과목: <b>{dataset}</b></p>'
+        f'<p style="font-size:16px; color:#555;">모드: <b>{mode}</b></p>'
+        f'<p style="font-size:16px; color:#555;">소요 시간: <b>{time_str}</b></p>'
+        f'<p style="font-size:16px; color:#555;">틀린 횟수: <b>{wrong_count}회</b></p>'
+        f'<p style="font-size:16px; color:#555;">날짜: <b>{time.strftime("%Y-%m-%d")}</b></p>'
+        '<hr style="border:1px solid #d4af37; margin: 15px 40px;">'
+        f'<p style="font-size:18px; color:#92400e; font-weight:bold; margin:15px 0;">{comment}</p>'
+        '</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 다시 도전하기", type="primary", use_container_width=True, key="retry_clear"):
+            word_list_saved = st.session_state.ord_word_list
+            mode = st.session_state.ord_mode
+            max_wrong = st.session_state.ord_max_wrong
+            username = st.session_state.ord_username
+            bgm = st.session_state.ord_bgm_on
+            dataset = st.session_state.ord_dataset_name
+            reset_ordering_state()
+            st.session_state.selected_theme = "ordering"
+            st.session_state.ord_game_started = True
+            st.session_state.ord_username = username
+            st.session_state.ord_mode = mode
+            st.session_state.ord_max_wrong = max_wrong
+            st.session_state.ord_wrong_count = 0
+            st.session_state.ord_current_index = 0
+            st.session_state.ord_correct_answers = []
+            st.session_state.ord_word_list = word_list_saved
+            shuffled = list(range(len(word_list_saved)))
+            random.shuffle(shuffled)
+            st.session_state.ord_shuffled_indices = shuffled
+            st.session_state.ord_start_time = time.time()
+            st.session_state.ord_game_over = False
+            st.session_state.ord_game_clear = False
+            st.session_state.ord_bgm_on = bgm
+            st.session_state.ord_show_hint = False
+            st.session_state.ord_dataset_name = dataset
+            st.session_state.ord_last_feedback = None
+            st.session_state.ord_typing_key = 0
+            st.rerun()
+    with col2:
+        if st.button("🏠 처음으로", use_container_width=True, key="home_clear"):
+            reset_ordering_state()
+            st.session_state.selected_theme = None
+            st.rerun()
 
 
 if __name__ == "__main__":
