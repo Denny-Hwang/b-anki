@@ -915,6 +915,107 @@ def go_previous():
 # Theme 2: 단어 순서 외우기
 # ============================================================
 
+# 성경 각 권별 이모지
+BIBLE_BOOK_EMOJIS = {
+    # 구약 39권
+    "창세기": "🌍", "출애굽기": "🔥", "레위기": "🐑", "민수기": "🏕️",
+    "신명기": "📜", "여호수아": "⚔️", "사사기": "🛡️", "룻기": "🌾",
+    "사무엘상": "👑", "사무엘하": "🏰", "열왕기상": "🏛️", "열왕기하": "💥",
+    "역대상": "📋", "역대하": "🏗️", "에스라": "🔨", "느헤미야": "🧱",
+    "에스더": "👸", "욥기": "😰", "시편": "🎵", "잠언": "💎",
+    "전도서": "🌬️", "아가": "💕", "이사야": "🕊️", "예레미야": "😢",
+    "예레미야애가": "💔", "에스겔": "👁️", "다니엘": "🦁", "호세아": "💍",
+    "요엘": "🦗", "아모스": "📢", "오바댜": "⛰️", "요나": "🐋",
+    "미가": "⭐", "나훔": "🌊", "하박국": "❓", "스바냐": "⚡",
+    "학개": "⛏️", "스가랴": "🐴", "말라기": "✉️",
+    # 신약 27권
+    "마태복음": "📖", "마가복음": "🏃", "누가복음": "🩺", "요한복음": "🕯️",
+    "사도행전": "🗺️", "로마서": "⚖️", "고린도전서": "💌", "고린도후서": "💪",
+    "갈라디아서": "⛓️", "에베소서": "🏠", "빌립보서": "😊", "골로새서": "🌟",
+    "데살로니가전서": "☁️", "데살로니가후서": "⏳", "디모데전서": "🧑‍🏫", "디모데후서": "🏅",
+    "디도서": "🏝️", "빌레몬서": "🤝", "히브리서": "🙏", "야고보서": "🔧",
+    "베드로전서": "🪨", "베드로후서": "⚠️", "요한1서": "❤️", "요한2서": "🚶",
+    "요한3서": "🤗", "유다서": "🗡️", "요한계시록": "📯",
+}
+
+# 성경 각 권별 내용 기반 힌트 (대표적인 내용 요약)
+BIBLE_BOOK_HINTS = {
+    # 구약 39권
+    "창세기": "천지창조와 아브라함·이삭·야곱의 이야기",
+    "출애굽기": "모세가 이스라엘 백성을 이집트에서 이끌어 냄",
+    "레위기": "제사 제도와 정결 율법의 규례",
+    "민수기": "광야 40년의 여정과 인구조사",
+    "신명기": "가나안 입성 전 모세의 마지막 설교",
+    "여호수아": "가나안 땅 정복과 12지파에게 분배",
+    "사사기": "기드온·삼손 등 사사들의 시대",
+    "룻기": "모압 여인의 시어머니를 향한 충성",
+    "사무엘상": "사울왕 즉위와 목동 다윗의 등장",
+    "사무엘하": "다윗 왕의 통치와 시련",
+    "열왕기상": "솔로몬의 성전 건축과 왕국 분열",
+    "열왕기하": "엘리야·엘리사 이후 남북 왕국의 멸망",
+    "역대상": "다윗의 족보와 통치 기록",
+    "역대하": "솔로몬의 성전 건축부터 유다 왕들의 역사",
+    "에스라": "바벨론 포로 귀환과 성전 재건",
+    "느헤미야": "예루살렘 성벽 재건의 이야기",
+    "에스더": "유대 민족을 구한 페르시아의 왕비",
+    "욥기": "의로운 자가 겪는 고난과 인내의 이야기",
+    "시편": "다윗 등의 찬양과 기도의 시 모음",
+    "잠언": "솔로몬의 지혜로운 교훈 모음",
+    "전도서": "헛되고 헛되도다, 인생의 의미를 묻다",
+    "아가": "신랑과 신부의 아름다운 사랑 노래",
+    "이사야": "메시아 예언과 이스라엘을 향한 위로",
+    "예레미야": "눈물의 선지자가 전하는 심판 경고",
+    "예레미야애가": "예루살렘 멸망을 슬퍼하는 애가",
+    "에스겔": "마른 뼈가 살아나는 환상과 새 성전",
+    "다니엘": "사자굴의 믿음과 종말의 환상",
+    "호세아": "불신실한 아내를 향한 변치 않는 사랑",
+    "요엘": "메뚜기 재앙과 성령 부어주심의 약속",
+    "아모스": "목자 출신이 외치는 공의와 정의",
+    "오바댜": "에돔에 대한 심판 선포",
+    "요나": "큰 물고기 뱃속과 니느웨의 회개",
+    "미가": "베들레헴에서 오실 통치자 예언",
+    "나훔": "앗수르 수도 니느웨의 멸망 예언",
+    "하박국": "의인은 믿음으로 살리라",
+    "스바냐": "여호와의 크고 두려운 심판의 날",
+    "학개": "귀환 후 성전 재건을 촉구하다",
+    "스가랴": "여덟 가지 환상과 메시아 예언",
+    "말라기": "구약의 마지막, 엘리야의 오심 예언",
+    # 신약 27권
+    "마태복음": "유대인을 위해 기록된 왕이신 예수",
+    "마가복음": "행동하시는 종 예수의 간결한 복음",
+    "누가복음": "의사 누가가 기록한 인자이신 예수",
+    "요한복음": "세상의 빛, 하나님의 아들 예수",
+    "사도행전": "성령 강림과 초대교회 복음 전파",
+    "로마서": "이신칭의, 믿음으로 의롭게 됨",
+    "고린도전서": "교회 문제 해결과 사랑의 장(13장)",
+    "고린도후서": "약함 속의 강함, 사도 바울의 권위",
+    "갈라디아서": "율법에서 자유, 오직 믿음으로",
+    "에베소서": "그리스도 안에서 하나 된 교회",
+    "빌립보서": "어떤 상황에서도 기뻐하라",
+    "골로새서": "만물 위에 으뜸이 되시는 그리스도",
+    "데살로니가전서": "예수님 재림의 소망",
+    "데살로니가후서": "재림 전에 나타날 징조들",
+    "디모데전서": "젊은 목회자 디모데에게 주는 교훈",
+    "디모데후서": "선한 싸움을 싸우라, 바울의 유언",
+    "디도서": "그레데 섬 교회 조직과 교훈",
+    "빌레몬서": "도망 노예 오네시모를 위한 사랑의 편지",
+    "히브리서": "예수는 영원한 대제사장",
+    "야고보서": "행함이 없는 믿음은 죽은 것",
+    "베드로전서": "고난 중에도 소망을 품으라",
+    "베드로후서": "거짓 교사를 경계하라",
+    "요한1서": "하나님은 사랑이시라",
+    "요한2서": "진리 안에서 행하라",
+    "요한3서": "선을 행하는 자는 하나님께 속한 자",
+    "유다서": "믿음의 도를 위하여 힘써 싸우라",
+    "요한계시록": "종말의 환상과 새 하늘 새 땅",
+}
+
+
+def get_book_emoji(word: str) -> str:
+    """성경 권명에 해당하는 이모지를 반환"""
+    return BIBLE_BOOK_EMOJIS.get(word, "")
+
+
 def get_chosung(text: str) -> str:
     """한글 문자열의 첫 글자 초성을 반환"""
     CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ',
@@ -927,10 +1028,16 @@ def get_chosung(text: str) -> str:
 
 
 def get_hint_text(word: str, level: int) -> str:
-    """힌트 텍스트 생성 (level 1: 초성만, level 2: 초성 + 글자 수)"""
+    """힌트 텍스트 생성 (level 1: 성경 내용 힌트, level 2: 내용 + 초성 + 글자 수)"""
+    content_hint = BIBLE_BOOK_HINTS.get(word, "")
     ch = get_chosung(word)
+    emoji = BIBLE_BOOK_EMOJIS.get(word, "💡")
     if level == 1:
+        if content_hint:
+            return f"{emoji} 힌트: {content_hint}"
         return f"💡 다음 단어는 '{ch}'으로 시작합니다"
+    if content_hint:
+        return f"⚠️ 마지막 기회! {content_hint} ('{ch}'으로 시작하는 {len(word)}글자)"
     return f"⚠️ 마지막 기회! '{ch}'으로 시작하는 {len(word)}글자입니다"
 
 
@@ -1255,28 +1362,30 @@ def render_click_mode():
         for j, word_idx in enumerate(row):
             with cols[j]:
                 word = word_list[word_idx]
+                emoji = get_book_emoji(word)
+                btn_label = f"{emoji} {word}" if emoji else word
                 # Highlight when auto-hint and this is the correct answer
                 btn_type = "primary" if (remaining == 1 and word_idx == current) else "secondary"
-                if st.button(word, key=f"word_btn_{word_idx}_{current}", use_container_width=True, type=btn_type):
+                if st.button(btn_label, key=f"word_btn_{word_idx}_{current}", use_container_width=True, type=btn_type):
                     if word_idx == current:
                         st.session_state.ord_correct_answers.append(word)
                         st.session_state.ord_current_index += 1
                         st.session_state.ord_show_hint = False
                         if st.session_state.ord_current_index >= total:
                             st.session_state.ord_game_clear = True
-                        st.session_state.ord_last_feedback = {"type": "success", "msg": f"✅ 정답! {current+1}.{word}"}
+                        st.session_state.ord_last_feedback = {"type": "success", "msg": f"✅ 정답! {current+1}.{get_book_emoji(word)} {word}"}
                         st.rerun()
                     else:
                         st.session_state.ord_wrong_count += 1
                         if st.session_state.ord_wrong_count >= max_wrong:
                             st.session_state.ord_game_over = True
-                        st.session_state.ord_last_feedback = {"type": "error", "msg": f"❌ 틀렸습니다! '{word}'는 {current+1}번이 아닙니다"}
+                        st.session_state.ord_last_feedback = {"type": "error", "msg": f"❌ 틀렸습니다! '{get_book_emoji(word)} {word}'는 {current+1}번이 아닙니다"}
                         st.rerun()
 
     # Answer chain
     st.markdown("---")
     if st.session_state.ord_correct_answers:
-        chain = " → ".join([f"{i+1}.{w}" for i, w in enumerate(st.session_state.ord_correct_answers)])
+        chain = " → ".join([f"{i+1}.{get_book_emoji(w)} {w}" for i, w in enumerate(st.session_state.ord_correct_answers)])
         st.markdown(f"""<div style="font-size:16px; line-height:2; padding:15px; background:#f0fdf4;
             border-radius:12px; border-left:4px solid #22c55e; margin:10px 0;">
             ✅ 정답 배열:<br>{chain}</div>""", unsafe_allow_html=True)
@@ -1318,7 +1427,7 @@ def render_typing_mode():
 
     # Show correct answers so far
     if st.session_state.ord_correct_answers:
-        chain = " → ".join([f"{i+1}.{w}" for i, w in enumerate(st.session_state.ord_correct_answers)])
+        chain = " → ".join([f"{i+1}.{get_book_emoji(w)} {w}" for i, w in enumerate(st.session_state.ord_correct_answers)])
         st.markdown(f"""<div style="font-size:16px; line-height:2; padding:15px; background:#f0fdf4;
             border-radius:12px; border-left:4px solid #22c55e; margin:10px 0;">
             ✅ 지금까지 맞춘 단어:<br>{chain}</div>""", unsafe_allow_html=True)
@@ -1340,7 +1449,7 @@ def render_typing_mode():
                     st.session_state.ord_typing_key = typing_key + 1
                     if st.session_state.ord_current_index >= total:
                         st.session_state.ord_game_clear = True
-                    st.session_state.ord_last_feedback = {"type": "success", "msg": f"✅ 정답! {current+1}.{answer}"}
+                    st.session_state.ord_last_feedback = {"type": "success", "msg": f"✅ 정답! {current+1}.{get_book_emoji(answer)} {answer}"}
                     st.rerun()
                 elif user_input.strip():
                     st.session_state.ord_wrong_count += 1
@@ -1370,7 +1479,7 @@ def render_ordering_game_over():
 
     st.markdown("---")
     st.markdown("**📋 전체 정답 목록:**")
-    items = [f"{i+1}.{w}" for i, w in enumerate(word_list)]
+    items = [f"{i+1}.{get_book_emoji(w)} {w}" for i, w in enumerate(word_list)]
     # Display in rows of 5
     for i in range(0, len(items), 5):
         st.markdown("  ".join(items[i:i+5]))
