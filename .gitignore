@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 .env
 .streamlit/secrets.toml
+.pytest_cache/
+data/banki.db
+data/banki.db-*
