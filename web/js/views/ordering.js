@@ -1,7 +1,7 @@
 // Theme 2 — put the bible books back in order, by clicking or by typing.
 
 import {
-  html, raw, appbar, progress, segmented, toast, readInput, celebrate, formatDuration,
+  html, raw, esc, appbar, progress, segmented, toast, readInput, celebrate,
 } from '../ui.js';
 import * as router from '../router.js';
 import * as hints from '../lib/hints.js';
@@ -193,7 +193,7 @@ function renderClickMode() {
           const emoji = getBookEmoji(word);
           const isNext = remaining === 1 && i === state.cursor;
           return raw(`<button class="btn${isNext ? ' btn--next' : ''}" data-act="pick" data-index="${i}">
-            ${emoji ? `${emoji} ` : ''}${word}
+            ${emoji ? `${esc(emoji)} ` : ''}${esc(word)}
           </button>`);
         })}
       </div>

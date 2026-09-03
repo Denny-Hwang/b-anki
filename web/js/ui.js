@@ -34,6 +34,16 @@ export function raw(value) {
   return { __raw: true, value };
 }
 
+/**
+ * Escape a value for a raw`` fragment.
+ *
+ * html`` escapes its interpolations already; use this inside the hand-built
+ * strings passed to raw(), where nothing else will.
+ */
+export function esc(value) {
+  return format(value);
+}
+
 // ---------- font size ----------
 
 export function getFontSize() {

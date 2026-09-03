@@ -1,6 +1,6 @@
 // Home: theme picker, personal stats lookup, and backup import/export.
 
-import { html, raw, appbar, toast, readInput } from '../ui.js';
+import { html, raw, esc, appbar, toast, readInput } from '../ui.js';
 import * as router from '../router.js';
 import * as storage from '../lib/storage.js';
 import { statsPanel } from './stats.js';
@@ -86,7 +86,7 @@ export default {
                 <button class="btn btn--sm" data-act="stats-lookup" data-key="submit">조회</button>
               </div>
               <datalist id="known-users">
-                ${users.map((u) => raw(`<option value="${u.replace(/"/g, '&quot;')}"></option>`))}
+                ${users.map((u) => raw(`<option value="${esc(u)}"></option>`))}
               </datalist>
             </div>
 
