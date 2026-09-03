@@ -179,6 +179,88 @@ def inject_global_styles() -> None:
             margin: 10px 0;
         }}
 
+        /* theme 3: PCUSA 헌법·규례 학습문제 */
+        .quiz-category {{
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--b-muted);
+            letter-spacing: 0.02em;
+            margin-bottom: 6px;
+        }}
+        .quiz-question {{
+            font-size: {max(font_size - 6, 17)}px;
+            line-height: 1.7;
+            padding: 20px 22px;
+            background: var(--b-card-bg);
+            color: var(--b-card-fg);
+            border-radius: 14px;
+            border-left: 4px solid var(--b-card-border);
+            margin: 4px 0 14px;
+        }}
+        .quiz-question .quiz-num {{
+            font-weight: 800;
+            color: var(--b-card-border);
+            margin-right: 6px;
+        }}
+        .quiz-hidden {{
+            font-size: {max(font_size - 8, 15)}px;
+            text-align: center;
+            padding: 32px 20px;
+            background: var(--b-hidden-bg);
+            color: var(--b-hidden-fg);
+            border-radius: 14px;
+            border: 2px dashed var(--b-hidden-border);
+            margin: 10px 0;
+        }}
+        .quiz-verdict {{
+            font-size: 20px;
+            font-weight: 700;
+            text-align: center;
+            padding: 10px;
+            border-radius: 12px;
+            margin: 10px 0;
+        }}
+        .quiz-correct {{ background: rgba(34, 197, 94, 0.12); color: var(--b-good); }}
+        .quiz-partial {{ background: rgba(217, 119, 6, 0.12); color: var(--b-partial); }}
+        .quiz-wrong {{ background: rgba(220, 38, 38, 0.12); color: var(--b-bad); }}
+        .quiz-picked {{
+            font-size: 15px;
+            text-align: center;
+            color: var(--b-bad);
+            margin: 4px 0 10px;
+        }}
+        .quiz-answer {{
+            font-size: {max(font_size - 8, 16)}px;
+            line-height: 1.6;
+            padding: 16px 18px;
+            background: rgba(34, 197, 94, 0.08);
+            color: var(--b-card-fg);
+            border-radius: 12px;
+            border-left: 4px solid var(--b-good);
+            margin: 10px 0;
+        }}
+        .quiz-answer .quiz-answer-lbl {{
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--b-good);
+            border: 1px solid var(--b-good);
+            border-radius: 6px;
+            padding: 1px 7px;
+            margin-right: 10px;
+            vertical-align: middle;
+        }}
+        .quiz-explanation {{
+            font-size: 14px;
+            line-height: 1.75;
+            padding: 14px 16px;
+            background: var(--b-hint-bg);
+            color: var(--b-hint-fg);
+            border-radius: 12px;
+            border: 1px solid var(--b-hint-border);
+            margin: 10px 0;
+        }}
+
         .stat-tile {{
             background: var(--b-card-bg);
             color: var(--b-card-fg);

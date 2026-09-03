@@ -5,7 +5,7 @@ theme router, top-level page config, and global style injection.
 """
 import streamlit as st
 
-from banki import home, keyboard, ordering_mode, storage, styles, verse_mode
+from banki import home, keyboard, ordering_mode, quiz_mode, storage, styles, verse_mode
 
 
 def _route() -> None:
@@ -28,6 +28,13 @@ def _route() -> None:
             ordering_mode.render_setup()
         else:
             ordering_mode.render_game()
+        return
+
+    if selected == "quiz":
+        if not st.session_state.get("quiz_started", False):
+            quiz_mode.render_setup()
+        else:
+            quiz_mode.render_game()
         return
 
 
