@@ -40,7 +40,7 @@ function reset() {
     categories: [],
     picked: [],
     mode: CHOICE,
-    limit: 20,
+    limit: 0,
     shuffle: true,
     useSrs: true,
     userName: storage.getPrefs().lastUser || '',
@@ -71,8 +71,6 @@ function loadBank(file) {
       if (!questions.length) {
         state.error = '문제집 CSV에 id, category, question, answer 열이 필요합니다.';
       }
-      const available = countAvailable();
-      state.limit = Math.min(20, available);
       router.rerender();
     })
     .catch((err) => {
@@ -347,10 +345,12 @@ function renderChoice(question, index) {
   }
 
   const correct = state.pickedOption === question.answer;
+  const pickedLine = correct ? '' : html`
+    <p class="meta" style="text-align:center;color:var(--bad)">내가 고른 답 · ${state.pickedOption}</p>
+  `;
   return html`
     ${raw(verdictBlock(correct ? 'correct' : 'miss'))}
-    ${correct ? '' : html`<p class="meta" style="text-align:center;color:var(--bad)">
-      내가 고른 답 · ${state.pickedOption}</p>`}
+    ${raw(pickedLine)}
     ${raw(answerBlock(question))}
     <button class="btn btn--primary btn--block" data-act="next-choice" data-key="next">
       ➡️ 다음 문제
@@ -551,7 +551,7 @@ export default {
           ? state.picked.filter((c) => c !== value)
           : [...state.picked, value];
         if (!state.picked.length) state.picked = [...state.categories];
-        state.limit = Math.min(state.limit || 20, countAvailable());
+        state.limit = Math.min(state.limit, countAvailable());
         break;
       }
 
