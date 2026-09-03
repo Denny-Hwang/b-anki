@@ -1,6 +1,6 @@
 // Stats panel shared by the home screen and the end-of-session sheets.
 
-import { html, raw, todayLabel } from '../ui.js';
+import { html, raw, esc, todayLabel } from '../ui.js';
 import * as storage from '../lib/storage.js';
 import { addDays } from '../lib/util.js';
 
@@ -54,8 +54,9 @@ export function statsPanel(name) {
       <div class="accordion__body">
         <ul class="list">
           ${stats.sessions.map((s) => raw(`<li>${
-            s.started_at.slice(0, 16).replace('T', ' ')
-          } · ${s.set_name.replace(/\.csv$/i, '')} · ${s.mode} · ${s.cards_reviewed}장${
+            esc(s.started_at.slice(0, 16).replace('T', ' '))
+          } · ${esc(s.set_name.replace(/\.csv$/i, ''))} · ${esc(s.mode)} · ${
+            Number(s.cards_reviewed)}장${
             s.avg_score === null ? '' : ` · 평균 ${Math.round(s.avg_score)}%`
           }</li>`))}
         </ul>
@@ -90,7 +91,7 @@ export function hardCardsPanel(name, setName) {
       <div class="accordion__body">
         <ul class="list">
           ${cards.map((c) => raw(
-            `<li>${c.location} — 실수 ${c.lapses}회 · 난이도 ${c.ease.toFixed(2)}</li>`,
+            `<li>${esc(c.location)} — 실수 ${Number(c.lapses)}회 · 난이도 ${c.ease.toFixed(2)}</li>`,
           ))}
         </ul>
       </div>

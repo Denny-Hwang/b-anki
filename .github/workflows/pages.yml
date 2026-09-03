@@ -36,7 +36,11 @@ jobs:
       - name: Build static site
         run: python3 scripts/build_site.py
 
+      # Creates the Pages site on the first run instead of requiring someone
+      # to flip Settings -> Pages -> Source to "GitHub Actions" by hand.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:

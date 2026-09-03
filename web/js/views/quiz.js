@@ -1,7 +1,7 @@
 // Theme 3 — PCUSA 헌법·규례 학습문제: 플래시카드 · 객관식 · 주관식.
 
 import {
-  html, raw, appbar, progress, segmented, toggle, toast,
+  html, raw, esc, appbar, progress, segmented, toggle, toast,
   scoreClass, readInput, celebrate,
 } from '../ui.js';
 import * as router from '../router.js';
@@ -200,7 +200,7 @@ function renderSetup() {
           <label class="label" for="quiz-file">문제집</label>
           <select class="select" id="quiz-file" data-change="file">
             ${state.files.map((f) => raw(
-              `<option value="${f.replace(/"/g, '&quot;')}"${f === state.file ? ' selected' : ''}>${datasets.prettyName(f)}</option>`,
+              `<option value="${esc(f)}"${f === state.file ? ' selected' : ''}>${esc(datasets.prettyName(f))}</option>`,
             ))}
           </select>
         </div>
@@ -210,8 +210,8 @@ function renderSetup() {
         <span class="section-label">출제 분야</span>
         <div class="chips">
           ${state.categories.map((c) => raw(
-            `<button class="chip" data-act="category" data-value="${c.replace(/"/g, '&quot;')}"
-              aria-pressed="${state.picked.includes(c)}">${c} ${counts[c]}</button>`,
+            `<button class="chip" data-act="category" data-value="${esc(c)}"
+              aria-pressed="${state.picked.includes(c)}">${esc(c)} ${counts[c]}</button>`,
           ))}
         </div>
         <p class="meta">선택한 분야의 문제 ${available}개</p>
@@ -259,9 +259,9 @@ function renderSetup() {
           ${state.picked.map((category) => {
             const inCategory = state.bank.filter((q) => q.category === category);
             const preview = inCategory.slice(0, 3)
-              .map((q) => `<li>${q.question.replace(/</g, '&lt;')}</li>`).join('');
+              .map((q) => `<li>${esc(q.question)}</li>`).join('');
             const more = inCategory.length > 3 ? `<li>… 외 ${inCategory.length - 3}문제</li>` : '';
-            return raw(`<div><b>${category}</b> (${inCategory.length}문제)
+            return raw(`<div><b>${esc(category)}</b> (${inCategory.length}문제)
               <ul class="list" style="margin-top:6px">${preview}${more}</ul></div>`);
           })}
         </div>
@@ -337,9 +337,9 @@ function renderChoice(question, index) {
       <div class="stack-sm stack">
         ${options.map((option, i) => raw(
           `<button class="btn btn--wordy btn--block" style="justify-content:flex-start;text-align:left"
-            data-act="pick" data-value="${String(option).replace(/"/g, '&quot;')}">
+            data-act="pick" data-value="${esc(option)}">
             <span style="color:var(--accent);font-weight:800;margin-right:8px">${MARKERS[i] || i + 1}</span>
-            ${String(option).replace(/</g, '&lt;')}
+            ${esc(option)}
           </button>`,
         ))}
       </div>
@@ -461,10 +461,10 @@ function renderResult() {
             ${wrong.map(([, r]) => raw(`
               <div class="card card--flat">
                 <p class="keep-all"><b>${r.verdict === 'partial' ? '🟡' : '❌'} ${
-                  r.question.replace(/</g, '&lt;')}</b></p>
+                  esc(r.question)}</b></p>
                 <p class="keep-all" style="margin-top:6px;color:var(--good)">정답 · ${
-                  r.answer.replace(/</g, '&lt;')}</p>
-                <p class="meta" style="margin-top:4px">분야 · ${r.category}</p>
+                  esc(r.answer)}</p>
+                <p class="meta" style="margin-top:4px">분야 · ${esc(r.category)}</p>
               </div>
             `))}
           </div>

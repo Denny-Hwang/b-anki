@@ -1,7 +1,7 @@
 // Theme 1 — verse memorization: 학습 (read / hide / recall), 암송, 받아쓰기.
 
 import {
-  html, raw, appbar, progress, segmented, toggle, toast,
+  html, raw, esc, appbar, progress, segmented, toggle, toast,
   scoreClass, readInput, celebrate,
 } from '../ui.js';
 import * as router from '../router.js';
@@ -199,7 +199,7 @@ function renderSetup() {
           <label class="label" for="verse-file">학습할 구절집</label>
           <select class="select" id="verse-file" data-change="file">
             ${state.files.map((f) => raw(
-              `<option value="${f.replace(/"/g, '&quot;')}"${f === state.file ? ' selected' : ''}>${datasets.prettyName(f)}</option>`,
+              `<option value="${esc(f)}"${f === state.file ? ' selected' : ''}>${esc(datasets.prettyName(f))}</option>`,
             ))}
           </select>
         </div>
@@ -455,7 +455,7 @@ function renderDone() {
           <div class="accordion__body">
             <ul class="list">
               ${detail.map(([location, r]) => raw(
-                `<li>${r.score >= 80 ? '✅' : r.score >= 50 ? '⚠️' : '❌'} <b>${location}</b> — ${r.score}%</li>`,
+                `<li>${r.score >= 80 ? '✅' : r.score >= 50 ? '⚠️' : '❌'} <b>${esc(location)}</b> — ${r.score}%</li>`,
               ))}
             </ul>
           </div>
