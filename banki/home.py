@@ -7,12 +7,13 @@ from . import storage
 def render_home() -> None:
     st.markdown("<h1 style='text-align:center;'>📖 B-Anki</h1>", unsafe_allow_html=True)
     st.markdown(
-        "<p style='text-align:center; color:var(--b-muted); font-size:18px;'>성경 암기 훈련 도우미</p>",
+        "<p style='text-align:center; color:var(--b-muted); font-size:18px;'>"
+        "성경 암기 · 교회 헌법 학습 도우미</p>",
         unsafe_allow_html=True,
     )
     st.markdown("")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(
             """
@@ -45,6 +46,23 @@ def render_home() -> None:
         )
         if st.button("🔢 단어순서 외우기 시작", use_container_width=True, type="primary"):
             st.session_state.selected_theme = "ordering"
+            st.rerun()
+
+    with col3:
+        st.markdown(
+            """
+            <div class="theme-card">
+                <div style="font-size:48px;">⚖️</div>
+                <h3>테마 3</h3>
+                <h4>PCUSA 헌법·규례</h4>
+                <p>미국장로교 헌법·규례서 학습문제<br>
+                <small>플래시카드 · 객관식 · 주관식 · 오답노트</small></p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("⚖️ 헌법·규례 문제풀기", use_container_width=True, type="primary"):
+            st.session_state.selected_theme = "quiz"
             st.rerun()
 
     st.markdown("---")

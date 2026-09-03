@@ -55,7 +55,7 @@ def inject_shortcuts() -> None:
 
                 const k = e.key;
                 if (k === ' ' || k === 'Spacebar') {
-                    if (click(t => /가리기|구절 확인|제출|다음|확인하기/.test(t))) {
+                    if (click(t => /가리기|구절 확인|정답 확인|제출|다음|확인하기/.test(t))) {
                         e.preventDefault();
                     }
                 } else if (k === 'ArrowRight') {

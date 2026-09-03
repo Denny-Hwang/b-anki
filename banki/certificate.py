@@ -118,6 +118,67 @@ def render_ordering_certificate(
     _render_download_button("단어순서_수료증")
 
 
+def render_quiz_certificate(
+    name: str,
+    set_label: str,
+    mode: str,
+    summary: dict,
+    elapsed_seconds: float,
+) -> None:
+    """Render a PCUSA constitution quiz result sheet."""
+    styles.inject_certificate_styles()
+
+    minutes = int(elapsed_seconds // 60)
+    seconds = int(elapsed_seconds % 60)
+    time_str = f"{minutes}분 {seconds}초"
+
+    accuracy = summary["accuracy"]
+    grade = config.compute_grade(accuracy)
+    safe_name = _html_escape(name) if name else "수고하신 분"
+    safe_set = _html_escape(set_label)
+    safe_mode = _html_escape(mode)
+    date_str = time.strftime("%Y-%m-%d")
+
+    if accuracy >= 90:
+        comment = "헌법과 규례서를 훌륭하게 익히셨습니다! 🏆"
+    elif accuracy >= 70:
+        comment = "좋습니다! 오답노트만 한 번 더 보시면 완벽합니다 ⭐"
+    else:
+        comment = "오답노트를 중심으로 한 번 더 도전해 보세요! 💪"
+
+    partial_html = ""
+    if summary["partial"]:
+        partial_html = (
+            f'<p style="font-size:16px;">부분 정답: <b>{summary["partial"]}문제</b></p>'
+        )
+
+    body = f"""
+        <div id="banki-cert" class="b-cert-wrap">
+            <div style="font-size:48px; margin-bottom:10px;">⚖️</div>
+            <h1>학습 결과표</h1>
+            <p style="font-size:14px; opacity:0.85; margin-bottom:25px;">{safe_set}</p>
+            <hr>
+            <p class="name">{safe_name}</p>
+            <p style="font-size:16px;">학습 방식: <b>{safe_mode}</b></p>
+            <p style="font-size:16px;">푼 문제: <b>{summary["total"]}문제</b></p>
+            <p style="font-size:16px;">정답: <b>{summary["correct"]}문제</b> ·
+               오답: <b>{summary["wrong"]}문제</b></p>
+            {partial_html}
+            <p style="font-size:20px; margin:15px 0;">정답률: <b>{accuracy}%</b>
+               (등급: <b>{grade}</b>)</p>
+            <p style="font-size:16px;">소요 시간: <b>{time_str}</b></p>
+            <hr>
+            <p class="quote">&ldquo;모든 것을 품위 있게 하고</p>
+            <p class="quote">질서 있게 하라&rdquo;</p>
+            <p style="font-size:13px; opacity:0.7;">— 고린도전서 14:40</p>
+            <p style="font-size:18px; font-weight:bold; margin:15px 0;">{comment}</p>
+            <p style="font-size:11px; opacity:0.6; margin-top:14px;">발급일 {date_str}</p>
+        </div>
+    """
+    st.markdown(body, unsafe_allow_html=True)
+    _render_download_button("헌법규례_결과표")
+
+
 def _render_download_button(filename_prefix: str) -> None:
     """Inject an html2canvas-based PNG download button.
 

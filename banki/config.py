@@ -8,6 +8,10 @@ BIBLE_VERSIONS = {
 
 DEFAULT_FILE = "kpccw 2026 성경암송.csv"
 
+#: Question banks for theme 3 live in data/ under this prefix.
+QUIZ_FILE_PREFIX = "quiz_"
+DEFAULT_QUIZ_FILE = "quiz_pcusa_constitution.csv"
+
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "banki.db")
 

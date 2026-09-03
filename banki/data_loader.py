@@ -14,6 +14,18 @@ def load_verse_csv(file_path: str) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def load_quiz_csv(file_path: str) -> list[dict]:
+    """Load a question bank (id, category, question, answer, accept, distractors, explanation)."""
+    df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
+    required = {"id", "category", "question", "answer"}
+    if not required.issubset(set(df.columns)):
+        return []
+    from . import quiz
+    rows = [quiz.normalize_question(row) for row in df.to_dict("records")]
+    return [r for r in rows if r["question"] and r["answer"]]
+
+
+@st.cache_data(show_spinner=False)
 def load_ordering_csv(file_path: str) -> list[str]:
     df = pd.read_csv(file_path)
     df = df.sort_values("order").reset_index(drop=True)
@@ -39,7 +51,9 @@ def list_verse_files() -> list[str]:
         return []
     files = [
         f for f in os.listdir(config.DATA_DIR)
-        if f.endswith(".csv") and not f.startswith("bible_books_")
+        if f.endswith(".csv")
+        and not f.startswith("bible_books_")
+        and not f.startswith(config.QUIZ_FILE_PREFIX)
     ]
     files.sort()
     if config.DEFAULT_FILE in files:
@@ -55,3 +69,17 @@ def list_ordering_files() -> list[str]:
         f for f in os.listdir(config.DATA_DIR)
         if f.startswith("bible_books_") and f.endswith(".csv")
     )
+
+
+def list_quiz_files() -> list[str]:
+    """Question-bank CSVs, with the bundled PCUSA bank first."""
+    if not os.path.isdir(config.DATA_DIR):
+        return []
+    files = sorted(
+        f for f in os.listdir(config.DATA_DIR)
+        if f.startswith(config.QUIZ_FILE_PREFIX) and f.endswith(".csv")
+    )
+    if config.DEFAULT_QUIZ_FILE in files:
+        files.remove(config.DEFAULT_QUIZ_FILE)
+        files.insert(0, config.DEFAULT_QUIZ_FILE)
+    return files

@@ -1,8 +1,8 @@
 # B-Anki
 
-A flashcard-style Bible verse memorization app built with [Streamlit](https://streamlit.io/).
+A flashcard-style memorization app for Bible verses and church-polity study, built with [Streamlit](https://streamlit.io/).
 
-Load your own verse sets from CSV files and practice recalling them with spaced repetition — just like [Anki](https://apps.ankiweb.net/), but for the Bible.
+Load your own verse sets or question banks from CSV files and practice recalling them with spaced repetition — just like [Anki](https://apps.ankiweb.net/), but for the Bible and the Book of Order.
 
 ## Features
 
@@ -21,6 +21,15 @@ Load your own verse sets from CSV files and practice recalling them with spaced 
 - **하트 시스템**: 허용 오답 1–10회 조정
 - **단계적 힌트**: 책별 내용 요약 → 초성 → 글자수 (3단계)
 - **이모지 배지**: 66권 각각 고유 이모지
+
+### 테마 3 · PCUSA 헌법·규례 학습문제
+- **문제은행**: 미국장로교(PCUSA) 헌법·규례서·직제사역 74문제 (10개 분야)
+- **세 가지 방식**: 📖 플래시카드(자기평가) · 🔤 객관식(4지선다) · ✍️ 주관식(직접 입력)
+- **분야별 출제**: 교회의 표식 · 공의회 · 헌법의 구성 · 정치 원리 · 직제사역 · 임기 · 당회/공동의회 · 공천위원회
+- **자동 채점**: 주관식은 유사어 부분 인정, 대체 정답(`accept`) 허용
+- **해설 제공**: 문제마다 헌법 근거와 배경 설명
+- **📝 오답노트**: 틀린/부분정답 문제만 골라 다시 풀기
+- **간격 반복(SRS)**: 테마 1과 동일한 SM-2 스케줄링을 문제 단위로 적용
 
 ### 공통
 - **📊 통계 대시보드**: 학습 스트릭, 평균 정확도, 일자별 복습량, 어려운 카드 Top
@@ -73,6 +82,32 @@ location,verse_krv,verse_niv
 
 A sample file with 10 verses is included at `data/sample_verses.csv`.
 
+## Adding Question Banks (테마 3)
+
+Question banks are CSV files in `data/` whose name starts with `quiz_`. Columns:
+
+| Column | Required | Description |
+|---|---|---|
+| `id` | ✅ | Unique question id — also the SRS card key, so keep it stable |
+| `category` | ✅ | Grouping label used by the 분야 filter (e.g. `당회와 공동의회`) |
+| `question` | ✅ | The prompt shown to the learner |
+| `answer` | ✅ | The canonical answer |
+| `accept` | | `\|`-separated alternate answers also graded correct |
+| `distractors` | | `\|`-separated wrong options for 객관식 mode |
+| `explanation` | | Background shown after answering |
+
+`distractors` may be left empty — 객관식 mode then borrows other questions' answers
+(closest in length first) as options. Categories appear in the order they first
+occur in the file.
+
+```csv
+id,category,question,answer,accept,distractors,explanation
+Q001,공의회,교역장로(목사)의 안수는 어느 공의회가 주관하는가?,노회,,당회|대회|총회,교역장로 안수는 노회 주관이다.
+```
+
+The bundled bank `data/quiz_pcusa_constitution.csv` holds 74 questions drawn from
+the 신임 제직 세미나 "PCUSA 직제사역의 이해" material.
+
 ## Architecture
 
 ```
@@ -82,6 +117,7 @@ b-anki/
 │   ├── config.py          # Constants
 │   ├── data_loader.py     # CSV loaders (cached)
 │   ├── grading.py         # Word-by-word match + fuzzy
+│   ├── quiz.py            # Theme 3 logic (options, grading, selection)
 │   ├── srs.py             # SM-2 spaced repetition
 │   ├── storage.py         # SQLite persistence
 │   ├── hints.py           # Progressive hints
@@ -93,9 +129,10 @@ b-anki/
 │   ├── home.py            # Theme selection
 │   ├── verse_mode.py      # Theme 1
 │   ├── ordering_mode.py   # Theme 2
+│   ├── quiz_mode.py       # Theme 3
 │   └── bible_data.py      # 66-book emoji + content hints
-├── data/                  # CSV verse sets
-└── tests/                 # Pytest unit tests
+├── data/                  # CSV verse sets + question banks
+└── tests/                 # Pytest unit + AppTest smoke tests
 ```
 
 ## Tech Stack
