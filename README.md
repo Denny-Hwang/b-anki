@@ -23,9 +23,9 @@ Load your own verse sets or question banks from CSV files and practice recalling
 - **이모지 배지**: 66권 각각 고유 이모지
 
 ### 테마 3 · PCUSA 헌법·규례 학습문제
-- **문제은행**: 미국장로교(PCUSA) 헌법·규례서·직제사역 74문제 (10개 분야)
+- **문제은행**: 신임 제직 세미나 "PCUSA 직제사역의 이해" 5~7쪽 학습문제 34문제 (6개 분야)
 - **세 가지 방식**: 📖 플래시카드(자기평가) · 🔤 객관식(4지선다) · ✍️ 주관식(직접 입력)
-- **분야별 출제**: 교회의 표식 · 공의회 · 헌법의 구성 · 정치 원리 · 직제사역 · 임기 · 당회/공동의회 · 공천위원회
+- **분야별 출제**: 교회의 구조와 헌법 · 당회 · 직제사역의 임기 · 직분과 제직선출 · 공천위원회 · 공동의회
 - **자동 채점**: 주관식은 유사어 부분 인정, 대체 정답(`accept`) 허용
 - **해설 제공**: 문제마다 헌법 근거와 배경 설명
 - **📝 오답노트**: 틀린/부분정답 문제만 골라 다시 풀기
@@ -105,8 +105,8 @@ id,category,question,answer,accept,distractors,explanation
 Q001,공의회,교역장로(목사)의 안수는 어느 공의회가 주관하는가?,노회,,당회|대회|총회,교역장로 안수는 노회 주관이다.
 ```
 
-The bundled bank `data/quiz_pcusa_constitution.csv` holds 74 questions drawn from
-the 신임 제직 세미나 "PCUSA 직제사역의 이해" material.
+The bundled bank `data/quiz_pcusa_constitution.csv` holds the 34 학습문제 printed on
+pages 5–7 of the 신임 제직 세미나 제2강 "PCUSA 직제사역의 이해" handout.
 
 ## Architecture
 
