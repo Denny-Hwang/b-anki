@@ -340,7 +340,9 @@ export default {
 
       case 'start': {
         if (state.useUpload && state.uploadedWords) {
-          startGame([...state.uploadedWords], state.uploadedName);
+          // The picker shows the filename to confirm the choice; the
+          // certificate reads better without the extension.
+          startGame([...state.uploadedWords], datasets.prettyName(state.uploadedName));
           break;
         }
         const files = DATASETS[state.datasetName];
