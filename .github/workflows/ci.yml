@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  python:
+    name: Python reference implementation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest tests/ -q
+
+  parity:
+    name: JS ports match Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The committed fixtures are the regression guard for the ported
+      # JavaScript, so first prove they still describe what Python does.
+      - name: Fixtures are up to date
+        run: |
+          python3 scripts/gen_fixtures.py
+          git diff --exit-code tests/fixtures
+
+      - name: bible-data.js is up to date
+        run: |
+          python3 scripts/gen_bible_data.py
+          git diff --exit-code web/js/lib/bible-data.js
+
+      - name: Compare the JavaScript ports against the fixtures
+        run: node web/tests/logic.test.mjs
+
+  e2e:
+    name: Browser smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm install --no-save playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+
+      - run: python3 scripts/build_site.py
+      - name: Serve and drive the built site
+        run: |
+          python3 -m http.server -d _site 8123 &
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:8123/ && break
+            sleep 1
+          done
+          node web/tests/e2e.test.mjs

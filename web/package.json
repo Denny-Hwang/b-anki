@@ -1,0 +1,6 @@
+{
+  "name": "b-anki-web",
+  "private": true,
+  "type": "module",
+  "description": "Static GitHub Pages front-end for B-Anki. Not published; package.json only marks these files as ES modules for Node-based tests."
+}

@@ -6,3 +6,7 @@ __pycache__/
 .pytest_cache/
 data/banki.db
 data/banki.db-*
+
+# static site build output and JS tooling
+_site/
+node_modules
