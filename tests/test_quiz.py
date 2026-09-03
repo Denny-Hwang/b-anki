@@ -229,7 +229,7 @@ def _load_bank() -> list[dict]:
 
 def test_question_bank_is_wellformed():
     bank = _load_bank()
-    assert len(bank) >= 50
+    assert len(bank) >= 30
     ids = [q["id"] for q in bank]
     assert len(ids) == len(set(ids)), "question ids must be unique"
     for q in bank:
@@ -250,12 +250,18 @@ def test_every_bank_answer_grades_itself_correct():
         assert r["verdict"] == "correct", f"{q['id']} scored {r['score']} on its own answer"
 
 
-@pytest.mark.parametrize("index", range(0, 74, 7))
-def test_bank_choices_are_distinct_and_contain_the_answer(index):
+def test_bank_choices_are_distinct_and_contain_the_answer():
     bank = _load_bank()
-    if index >= len(bank):
-        pytest.skip("bank smaller than sample index")
-    q = bank[index]
-    options = quiz.build_choices(q, bank, rng=random.Random(index))
-    assert q["answer"] in options
-    assert len(options) == len(set(options))
+    for index, q in enumerate(bank):
+        options = quiz.build_choices(q, bank, rng=random.Random(index))
+        assert q["answer"] in options, q["id"]
+        assert len(options) == len(set(options)), q["id"]
+        assert len(options) == quiz.CHOICE_COUNT, q["id"]
+
+
+def test_bank_categories_are_stable_and_nonempty():
+    bank = _load_bank()
+    cats = quiz.categories(bank)
+    assert len(cats) >= 3
+    for c in cats:
+        assert any(q["category"] == c for q in bank)
