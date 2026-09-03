@@ -193,10 +193,15 @@ Streamlit 버전은 진도를 서버의 `data/banki.db`에 저장하므로 웹�
 
 ## 배포
 
-`main`에 푸시하면 `.github/workflows/pages.yml`이 `_site/`를 만들어 GitHub Pages로
-배포합니다. 워크플로가 `configure-pages`의 `enablement: true`로 Pages 사이트를 직접
-켜기 때문에 수동 설정은 필요 없습니다. (권한 문제로 실패하면 저장소 설정에서
-**Settings → Pages → Source: GitHub Actions**를 한 번 선택해 주세요.)
+**최초 1회 설정이 필요합니다**: 저장소 **Settings → Pages → Source**를
+**GitHub Actions**로 바꿔 주세요. 이건 저장소 소유자만 할 수 있습니다 — 워크플로
+토큰(`GITHUB_TOKEN`)에는 Pages 사이트를 만들 권한이 없어서
+`configure-pages`의 `enablement: true`로도 대신할 수 없습니다.
+
+그 뒤로는 `main`에 푸시할 때마다 `.github/workflows/pages.yml`이 `_site/`를 만들어
+자동 배포합니다. 설정 전에는 빌드까지는 성공하고 `configure-pages` 단계에서
+`Get Pages site failed … Please verify that the repository has Pages enabled`
+로 멈춥니다.
 
 ## Tech Stack
 - **Vanilla JS (ES modules)** — 빌드 도구·프레임워크 없음
