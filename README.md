@@ -138,16 +138,19 @@ CI에서 두 검사가 모두 돌아갑니다.
 
 `data/` 폴더에 CSV를 넣으면 빌드 시 `manifest.json`에 자동 등록됩니다.
 
-| Column | Description |
-|---|---|
-| `location` | Book, chapter, and verse (e.g. `Romans 8:28`) |
-| `verse_krv` | Verse text in Korean (개역개정) |
-| `verse_niv` | Verse text in English (NIV) |
+| Column | Required | Description |
+|---|---|---|
+| `location` | ✅ | Book, chapter, and verse (e.g. `Romans 8:28`) — also the SRS card key |
+| `verse_krv` | ✅ | Verse text in Korean (개역개정) |
+| `verse_niv` | ✅ | Verse text in English (NIV) |
+| `topic` | | 교재 진도 등 구절의 주제 — 있으면 장절 위에 함께 표시됩니다 |
 
 ```csv
 location,verse_krv,verse_niv
 빌립보서 4:13,내게 능력 주시는 자 안에서 내가 모든 것을 할 수 있느니라,I can do all this through him who gives me strength.
 ```
+
+`data/제자양육 성경암송.csv`가 `topic` 열을 쓰는 예입니다.
 
 A sample file with 10 verses is included at `data/sample_verses.csv`.
 

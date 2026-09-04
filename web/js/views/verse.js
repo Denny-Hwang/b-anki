@@ -96,7 +96,13 @@ function startSession() {
 function currentCard() {
   const index = state.order[state.cursor];
   const row = state.rows[index];
-  return { index, row, location: row.location, text: row[state.verseCol] };
+  return {
+    index,
+    row,
+    location: row.location,
+    topic: (row.topic || '').trim(),
+    text: row[state.verseCol],
+  };
 }
 
 function advanceCursor() {
@@ -501,7 +507,10 @@ function renderRun() {
     <div class="stack">
       ${raw(progress(done, total))}
       <p class="meta">진행 ${done} / ${total}</p>
-      <div class="location">📍 ${card.location}</div>
+      <div class="stack stack-xs">
+        ${card.topic ? raw(`<div class="topic">${esc(card.topic)}</div>`) : ''}
+        <div class="location">📍 ${card.location}</div>
+      </div>
       ${raw(body)}
     </div>
   `;

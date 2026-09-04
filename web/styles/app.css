@@ -170,6 +170,7 @@ select {
   gap: 14px;
 }
 
+.stack-xs { gap: 4px; }
 .stack-sm { gap: 8px; }
 .stack-lg { gap: 22px; }
 
@@ -704,6 +705,14 @@ select {
   color: var(--text-3);
   font-size: calc(var(--verse-size) * 0.62);
   box-shadow: none;
+}
+
+.topic {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
 }
 
 .location {
