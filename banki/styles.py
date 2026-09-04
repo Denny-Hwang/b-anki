@@ -78,6 +78,14 @@ def inject_global_styles() -> None:
             max-width: 820px;
         }}
 
+        .verse-topic {{
+            font-size: {result_size}px;
+            font-weight: 600;
+            color: var(--b-muted);
+            text-align: center;
+            margin-bottom: 4px;
+            letter-spacing: 0.02em;
+        }}
         .verse-location {{
             font-size: {location_size}px;
             font-weight: bold;

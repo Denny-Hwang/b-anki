@@ -15,6 +15,12 @@ def _ss(key: str, default=None):
     return st.session_state.get(key, default)
 
 
+def _topic_of(row) -> str:
+    """The optional 교재 진도 label — verse sets without a topic column render without it."""
+    topic = row.get("topic", "")
+    return "" if pd.isna(topic) else str(topic).strip()
+
+
 def _init_session(df: pd.DataFrame, shuffle: bool, use_srs: bool, user_id: int, set_name: str) -> None:
     indices = list(range(len(df)))
     if use_srs and user_id:
@@ -168,8 +174,11 @@ def render_main_page() -> None:
     row = df.iloc[order[idx]]
     location = row["location"]
     verse_text = row[verse_col]
+    topic = _topic_of(row)
 
     st.markdown("---")
+    if topic:
+        st.markdown(f'<div class="verse-topic">{topic}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="verse-location">📍 {location}</div>', unsafe_allow_html=True)
 
     if app_mode == "학습":
