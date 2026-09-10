@@ -13,6 +13,9 @@ import { chromium } from 'playwright';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8123';
 const SHOTS = process.env.SHOT_DIR || '';
+// Sandboxes that ship a pre-installed Chromium can point at it instead of
+// letting Playwright download the build it was packaged with.
+const CHROMIUM_PATH = process.env.CHROMIUM_PATH || '';
 
 let passed = 0;
 const failures = [];
@@ -56,7 +59,8 @@ async function assertNoLeakedMarkup(page, where) {
 }
 
 async function run() {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(
+    CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {});
   const page = await browser.newPage({ viewport: { width: 900, height: 1200 } });
   const errors = [];
   page.on('pageerror', (err) => errors.push(String(err)));
@@ -431,6 +435,114 @@ async function run() {
   await assertNoLeakedMarkup(page, '성경암송 수료증');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/15-verse-cert.png`, fullPage: true });
 
+  // ---------- theme 1: reading, then jumping into memorization ----------
+  console.log('\n테마 1 · 읽기 · 바로 암기');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '성경구절 암기');
+  await page.waitForSelector('#verse-file');
+  await page.selectOption('#verse-file', 'sample_verses.csv');
+  await page.waitForTimeout(120);
+  await click(page, '전체 구절 읽어보기');
+  await page.waitForSelector('.readitem');
+  const verseItems = await page.locator('.readitem').count();
+  ok('구절집 전체를 읽기 목록으로 볼 수 있다', verseItems >= 3, `${verseItems}개`);
+  await assertNoLeakedMarkup(page, '구절 읽기');
+  await shot(page, '16-verse-read');
+
+  const pickedRef = (await page.locator('.readitem .location').nth(2).innerText())
+    .replace('📍', '').trim();
+  await page.fill('#read-search', pickedRef);
+  await page.waitForTimeout(150);
+  const narrowed = await page.locator('.readitem:not([hidden])').count();
+  ok('검색이 목록을 좁힌다', narrowed >= 1 && narrowed < verseItems, `${narrowed} / ${verseItems}`);
+  await page.fill('#read-search', '');
+  await page.waitForTimeout(150);
+  ok('검색어를 지우면 전부 다시 보인다',
+    (await page.locator('.readitem:not([hidden])').count()) === verseItems);
+
+  await page.locator('.readitem').nth(2).locator('[data-mode="받아쓰기"]').click();
+  await page.waitForSelector('#verse-input');
+  const jumped = await bodyText(page);
+  ok('읽던 구절에서 바로 받아쓰기로 넘어간다', jumped.includes(pickedRef), jumped.slice(0, 140));
+  ok('고른 구절부터 끝까지 이어서 학습한다',
+    jumped.includes(`진행 0 / ${verseItems - 2}`), jumped.slice(0, 140));
+
+  // 고른 구절만: a single-verse session, with a way back to the list
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '성경구절 암기');
+  await page.waitForSelector('#verse-file');
+  await page.selectOption('#verse-file', 'sample_verses.csv');
+  await page.waitForTimeout(120);
+  await click(page, '전체 구절 읽어보기');
+  await page.waitForSelector('.readitem');
+  await click(page, '고른 구절만 학습');
+  await page.locator('.readitem').nth(1).locator('[data-mode="학습"]').click();
+  await page.waitForTimeout(200);
+  ok('고른 구절만 켜면 그 구절 하나만 학습한다',
+    (await bodyText(page)).includes('진행 0 / 1'));
+  await click(page, '📖 목록');
+  ok('학습 중에도 목록으로 돌아갈 수 있다',
+    (await bodyText(page)).includes('하던 학습 이어서'));
+  await click(page, '하던 학습 이어서 하기');
+  ok('목록에서 하던 학습으로 돌아온다', (await bodyText(page)).includes('진행 0 / 1'));
+
+  // ---------- theme 3: reading the bank, then jumping into a question ----------
+  console.log('\n테마 3 · 문제집 읽기 · 바로 풀기');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '헌법·규례');
+  await page.waitForSelector('.chips button');
+  await click(page, '문제집 읽어보기');
+  await page.waitForSelector('.readitem');
+  const quizItems = await page.locator('.readitem').count();
+  ok('문제집 전체를 읽을 수 있다', quizItems >= 30, `${quizItems}문제`);
+  ok('읽기 목록은 정답도 함께 보여준다',
+    (await page.locator('.readitem .answerbox').count()) === quizItems);
+  await assertNoLeakedMarkup(page, '문제집 읽기');
+  await shot(page, '17-quiz-read');
+
+  const firstQuestion = (await page.locator('.readitem .readitem__text').first().innerText())
+    .trim().slice(0, 20);
+  await page.fill('#quiz-read-search', firstQuestion);
+  await page.waitForTimeout(150);
+  const quizNarrowed = await page.locator('.readitem:not([hidden])').count();
+  ok('문제 검색이 목록을 좁힌다', quizNarrowed >= 1 && quizNarrowed < quizItems,
+    `${quizNarrowed} / ${quizItems}`);
+  await page.fill('#quiz-read-search', '');
+  await page.waitForTimeout(150);
+
+  const secondQuestion = (await page.locator('.readitem .readitem__text').nth(1).innerText())
+    .trim();
+  await page.locator('.readitem').nth(1).locator('[data-mode="주관식"]').click();
+  await page.waitForSelector('#quiz-input');
+  const quizJumped = await bodyText(page);
+  ok('읽던 문제에서 바로 주관식으로 넘어간다', quizJumped.includes(secondQuestion.slice(0, 15)),
+    quizJumped.slice(0, 140));
+  ok('고른 문제부터 이어서 푼다', quizJumped.includes(`진행 0 / ${quizItems - 1}`),
+    quizJumped.slice(0, 140));
+
+  // ---------- theme 2: reading the order, then starting from one book ----------
+  console.log('\n테마 2 · 순서 읽기 · 고른 책부터');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '단어순서 외우기');
+  await click(page, '순서 읽어보기');
+  await page.waitForSelector('.readitem');
+  ok('구약 39권이 순서대로 나온다', (await page.locator('.readitem').count()) === 39);
+  ok('책 소개도 함께 읽을 수 있다', (await bodyText(page)).includes('창세기'));
+  await assertNoLeakedMarkup(page, '순서 읽기');
+  await shot(page, '18-ordering-read');
+
+  await page.fill('#ord-read-search', '이사야');
+  await page.waitForTimeout(150);
+  ok('책 검색이 목록을 좁힌다', (await page.locator('.readitem:not([hidden])').count()) < 39);
+  await page.fill('#ord-read-search', '');
+  await page.waitForTimeout(150);
+
+  await page.locator('.readitem').nth(35).locator('[data-mode="클릭 배열"]').click();
+  await page.waitForSelector('.wordgrid');
+  ok('고른 책부터 남은 책만 출제된다',
+    (await page.locator('.wordgrid button').count()) === 4);
+  ok('시작 지점이 부제에 적힌다', (await bodyText(page)).includes('부터'));
+
   // ---------- dark mode ----------
   console.log('\n다크 모드 · 키보드');
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -475,6 +587,15 @@ async function run() {
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   ok('가로 스크롤이 없다', overflow <= 0, `overflow ${overflow}px`);
   if (SHOTS) await mobile.screenshot({ path: `${SHOTS}/11-mobile.png`, fullPage: true });
+
+  await click(mobile, '성경구절 암기');
+  await mobile.waitForSelector('#verse-file');
+  await click(mobile, '전체 구절 읽어보기');
+  await mobile.waitForSelector('.readitem');
+  const readOverflow = await mobile.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  ok('읽기 목록도 가로 스크롤이 없다', readOverflow <= 0, `overflow ${readOverflow}px`);
+  if (SHOTS) await mobile.screenshot({ path: `${SHOTS}/19-mobile-read.png`, fullPage: true });
   await mobile.close();
 
   ok('자바스크립트 오류가 없다', errors.length === 0, errors.slice(0, 3).join(' | '));
