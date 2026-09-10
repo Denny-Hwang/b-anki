@@ -2,7 +2,7 @@
 
 import {
   html, raw, esc, appbar, progress, segmented, toggle, toast,
-  scoreClass, readInput, celebrate,
+  scoreClass, readInput, celebrate, wireListFilter,
 } from '../ui.js';
 import * as router from '../router.js';
 import * as storage from '../lib/storage.js';
@@ -41,6 +41,9 @@ function reset() {
     picked: [],
     mode: CHOICE,
     limit: 0,
+    readSearch: '',
+    focusOnly: false,
+    hasRound: false,
     shuffle: true,
     useSrs: true,
     userName: storage.getPrefs().lastUser || '',
@@ -87,17 +90,33 @@ function countAvailable() {
 
 // ---------- lifecycle ----------
 
-function startRound() {
-  let pool = quiz.selectQuestions(state.bank, state.picked, null, state.shuffle);
-  if (state.mode === CHOICE) pool = pool.filter((q) => quiz.hasChoiceForm(q, state.bank));
+/**
+ * Build the queue and enter the run screen.
+ *
+ * `startId` is the question the learner picked while reading the bank: the
+ * round then runs in bank order from there on — or over that one question when
+ * 고른 문제만 is on — instead of the shuffled, SRS-ordered, capped selection.
+ */
+function startRound({ startId = null } = {}) {
+  let pool;
 
-  if (state.useSrs && state.userName) {
-    const saved = storage.loadCardStates(state.userName, state.file, pool.map((q) => q.id));
-    const byIndex = {};
-    pool.forEach((q, i) => { byIndex[i] = saved[q.id] || srs.newCardState(); });
-    pool = srs.sortForSession(byIndex, pool.map((_, i) => i)).map((i) => pool[i]);
+  if (startId !== null) {
+    const inScope = quiz.selectQuestions(state.bank, state.picked, null, false);
+    // Clamp: a picked question always comes from this same scoped list.
+    const at = Math.max(0, inScope.findIndex((q) => q.id === startId));
+    pool = state.focusOnly ? inScope.slice(at, at + 1) : inScope.slice(at);
+  } else {
+    pool = quiz.selectQuestions(state.bank, state.picked, null, state.shuffle);
+    if (state.mode === CHOICE) pool = pool.filter((q) => quiz.hasChoiceForm(q, state.bank));
+
+    if (state.useSrs && state.userName) {
+      const saved = storage.loadCardStates(state.userName, state.file, pool.map((q) => q.id));
+      const byIndex = {};
+      pool.forEach((q, i) => { byIndex[i] = saved[q.id] || srs.newCardState(); });
+      pool = srs.sortForSession(byIndex, pool.map((_, i) => i)).map((i) => pool[i]);
+    }
+    if (state.limit > 0) pool = pool.slice(0, state.limit);
   }
-  if (state.limit > 0) pool = pool.slice(0, state.limit);
 
   state.queue = pool;
   state.index = 0;
@@ -111,6 +130,7 @@ function startRound() {
   state.startedAt = Date.now();
   state.sessionEnded = false;
   state.celebrated = false;
+  state.hasRound = true;
 
   if (state.userName) {
     storage.getOrCreateUser(state.userName);
@@ -251,19 +271,86 @@ function renderSetup() {
         🚀 학습 시작
       </button>
 
-      <details class="accordion">
-        <summary>📚 문제집 미리보기</summary>
-        <div class="accordion__body stack-sm stack">
-          ${state.picked.map((category) => {
-            const inCategory = state.bank.filter((q) => q.category === category);
-            const preview = inCategory.slice(0, 3)
-              .map((q) => `<li>${esc(q.question)}</li>`).join('');
-            const more = inCategory.length > 3 ? `<li>… 외 ${inCategory.length - 3}문제</li>` : '';
-            return raw(`<div><b>${esc(category)}</b> (${inCategory.length}문제)
-              <ul class="list" style="margin-top:6px">${preview}${more}</ul></div>`);
-          })}
+      <button class="btn btn--block" data-act="read" ${available ? '' : raw('disabled')}>
+        📖 문제집 읽어보기
+      </button>
+      <p class="hint-text keep-all" style="text-align:center">
+        문제와 정답·해설을 먼저 읽어보고, 익히고 싶은 문제에서 바로 학습으로 넘어갈 수 있습니다.
+      </p>
+    </div>
+  `;
+}
+
+// ---------- reading screen ----------
+
+function readItem(question, index) {
+  const haystack = [question.question, question.answer, question.category,
+    question.accept.join(' '), question.explanation]
+    .filter(Boolean).join(' ').toLowerCase();
+  const accept = question.accept.length
+    ? `<p class="meta">이렇게 답해도 정답 · ${esc(question.accept.join(' / '))}</p>`
+    : '';
+  const explanation = question.explanation
+    ? `<div class="explanation keep-all">📌 ${esc(question.explanation)}</div>`
+    : '';
+
+  return `
+    <article class="readitem" data-search="${esc(haystack)}">
+      <div class="readitem__head">
+        <span class="readitem__num">${index + 1}</span>
+        <div class="readitem__ref">
+          <div class="category">📂 ${esc(question.category)}</div>
+          <p class="readitem__text keep-all" style="margin-top:2px">${esc(question.question)}</p>
         </div>
-      </details>
+      </div>
+      <div class="answerbox keep-all">
+        <span class="answerbox__tag">정답</span>${esc(question.answer)}
+      </div>
+      ${accept}
+      ${explanation}
+      <div class="readitem__acts">
+        <button class="btn btn--sm" data-act="read-jump" data-id="${esc(question.id)}"
+          data-mode="${esc(FLASHCARD)}">📖 플래시카드</button>
+        <button class="btn btn--sm" data-act="read-jump" data-id="${esc(question.id)}"
+          data-mode="${esc(CHOICE)}">🔤 객관식</button>
+        <button class="btn btn--sm" data-act="read-jump" data-id="${esc(question.id)}"
+          data-mode="${esc(SHORT)}">✍️ 주관식</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderRead() {
+  const questions = quiz.selectQuestions(state.bank, state.picked, null, false);
+  const scopeLabel = state.focusOnly
+    ? '고른 문제 하나만 풉니다'
+    : '고른 문제부터 마지막 문제까지 이어서 풉니다';
+
+  return html`
+    ${raw(appbar({ title: '⚖️ PCUSA 헌법·규례', sub: '읽기', font: true }))}
+
+    <div class="stack">
+      <div class="card stack stack-sm">
+        <div class="field">
+          <label class="label" for="quiz-read-search">🔎 문제 찾기</label>
+          <input class="input" id="quiz-read-search" placeholder="문제 · 정답 · 해설로 검색"
+            autocomplete="off">
+        </div>
+        ${raw(toggle('toggle-focus-only', '고른 문제만 풀기', state.focusOnly, scopeLabel))}
+      </div>
+
+      ${state.hasRound && state.index < state.queue.length
+        ? raw('<button class="btn btn--primary btn--block" data-act="resume">▶️ 풀던 문제 이어서 풀기</button>')
+        : ''}
+
+      <p class="meta">선택한 분야의 문제 ${questions.length}개 · 버튼을 누르면 그 문제부터 시작합니다</p>
+
+      <div class="readlist">
+        ${questions.map((q, i) => raw(readItem(q, i)))}
+      </div>
+      <div class="empty" id="quiz-read-search-empty" hidden>검색 결과가 없습니다</div>
+
+      <button class="btn btn--block" data-act="back-setup">🔙 설정으로 돌아가기</button>
     </div>
   `;
 }
@@ -478,11 +565,12 @@ function renderResult() {
         </details>
       `) : ''}
 
-      <div class="${wrong.length ? 'grid-3' : 'grid-2'}">
+      <div class="${wrong.length ? 'grid-4' : 'grid-3'}">
         ${wrong.length ? raw(
           '<button class="btn btn--primary" data-act="retry-wrong" data-key="space">📝 오답만 다시</button>',
         ) : ''}
         <button class="btn" data-act="back-setup">🔄 새로 풀기</button>
+        <button class="btn" data-act="read">📖 문제집 읽기</button>
         <button class="btn" data-act="home">🏠 처음으로</button>
       </div>
     </div>
@@ -516,7 +604,9 @@ export default {
   },
 
   render() {
-    return state.stage === 'setup' ? renderSetup() : renderRun();
+    if (state.stage === 'setup') return renderSetup();
+    if (state.stage === 'read') return renderRead();
+    return renderRun();
   },
 
   afterRender() {
@@ -524,6 +614,11 @@ export default {
     if (input) {
       input.value = state.typed;
       input.focus();
+    }
+    const search = document.getElementById('quiz-read-search');
+    if (search) {
+      search.value = state.readSearch;
+      wireListFilter('quiz-read-search', '.readitem', (query) => { state.readSearch = query; });
     }
   },
 
@@ -577,6 +672,32 @@ export default {
 
       case 'start':
         startRound();
+        break;
+
+      case 'read':
+        state.stage = 'read';
+        break;
+
+      case 'toggle-focus-only':
+        state.focusOnly = !state.focusOnly;
+        break;
+
+      // Jump straight from the question being read into practising it.
+      case 'read-jump': {
+        const mode = el.dataset.mode;
+        const target = state.bank.find((q) => q.id === el.dataset.id);
+        if (!target) return;
+        if (mode === CHOICE && !quiz.hasChoiceForm(target, state.bank)) {
+          toast('이 문제는 객관식으로 낼 수 없습니다');
+          return;
+        }
+        state.mode = mode;
+        startRound({ startId: target.id });
+        break;
+      }
+
+      case 'resume':
+        state.stage = 'run';
         break;
 
       case 'reveal':
@@ -661,6 +782,7 @@ export default {
 
       case 'back-setup':
         state.stage = 'setup';
+        state.hasRound = false;
         break;
 
       default:

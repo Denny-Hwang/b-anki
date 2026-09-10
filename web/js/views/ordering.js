@@ -2,6 +2,7 @@
 
 import {
   html, raw, esc, appbar, progress, segmented, toast, readInput, celebrate,
+  wireListFilter,
 } from '../ui.js';
 import * as router from '../router.js';
 import * as hints from '../lib/hints.js';
@@ -33,6 +34,9 @@ function reset() {
     useUpload: false,
     mode: CLICK,
     maxWrong: 3,
+    readWords: [],
+    readLabel: '',
+    readSearch: '',
     words: [],
     shuffled: [],
     cursor: 0,
@@ -47,6 +51,29 @@ function reset() {
 }
 
 // ---------- lifecycle ----------
+
+/**
+ * Resolve the chosen dataset — the learner's upload if there is one, else the
+ * bundled CSVs — and hand the word list to `then`. Shared by 게임 시작 and 읽기.
+ */
+function withWords(then) {
+  if (state.useUpload && state.uploadedWords) {
+    then([...state.uploadedWords], datasets.prettyName(state.uploadedName));
+    router.rerender();
+    return;
+  }
+  Promise.all(DATASETS[state.datasetName].map(datasets.loadOrdering))
+    .then((lists) => {
+      const words = lists.flat();
+      if (!words.length) {
+        toast('데이터를 불러오지 못했습니다');
+        return;
+      }
+      then(words, state.datasetName);
+      router.rerender();
+    })
+    .catch((err) => toast(err.message));
+}
 
 function startGame(words, label) {
   state.words = words;
@@ -131,6 +158,61 @@ function renderSetup() {
       <button class="btn btn--primary btn--block" data-act="start" data-key="space">
         🎮 게임 시작
       </button>
+      <button class="btn btn--block" data-act="read">
+        📖 순서 읽어보기
+      </button>
+      <p class="hint-text keep-all" style="text-align:center">
+        순서를 먼저 읽어보고, 외우고 싶은 책에서 바로 그 지점부터 게임을 시작할 수 있습니다.
+      </p>
+    </div>
+  `;
+}
+
+// ---------- reading screen ----------
+
+function readItem(word, index) {
+  const emoji = getBookEmoji(word) || '📘';
+  const summary = BIBLE_BOOK_HINTS[word] || '';
+  const haystack = `${word} ${summary}`.toLowerCase();
+
+  return `
+    <article class="readitem" data-search="${esc(haystack)}">
+      <div class="readitem__head">
+        <span class="readitem__num">${index + 1}</span>
+        <div class="readitem__ref">
+          <p class="readitem__text">${esc(emoji)} ${esc(word)}</p>
+          ${summary ? `<p class="meta keep-all">${esc(summary)}</p>` : ''}
+        </div>
+      </div>
+      <div class="readitem__acts">
+        <button class="btn btn--sm" data-act="read-jump" data-index="${index}"
+          data-mode="${esc(CLICK)}">🖱️ 여기부터 클릭 배열</button>
+        <button class="btn btn--sm" data-act="read-jump" data-index="${index}"
+          data-mode="${esc(TYPING)}">✍️ 여기부터 받아쓰기</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderRead() {
+  return html`
+    ${raw(appbar({ title: '🔢 단어 순서 외우기', sub: `읽기 · ${state.readLabel}`, font: true }))}
+
+    <div class="stack">
+      <div class="card field">
+        <label class="label" for="ord-read-search">🔎 책 찾기</label>
+        <input class="input" id="ord-read-search" placeholder="책 이름 · 내용으로 검색"
+          autocomplete="off">
+      </div>
+
+      <p class="meta">전체 ${state.readWords.length}권 · 고른 책부터 마지막 책까지 순서를 맞춥니다</p>
+
+      <div class="readlist">
+        ${state.readWords.map((word, i) => raw(readItem(word, i)))}
+      </div>
+      <div class="empty" id="ord-read-search-empty" hidden>검색 결과가 없습니다</div>
+
+      <button class="btn btn--block" data-act="back-setup">🔙 설정으로 돌아가기</button>
     </div>
   `;
 }
@@ -242,8 +324,9 @@ function renderGameOver() {
           <p class="keep-all" style="line-height:2;color:var(--text-2)">${items.join('  ·  ')}</p>
         </div>
       </details>
-      <div class="grid-2">
+      <div class="grid-3">
         <button class="btn btn--primary" data-act="restart" data-key="space">🔄 다시 도전</button>
+        <button class="btn" data-act="read">📖 순서 읽기</button>
         <button class="btn" data-act="home">🏠 처음으로</button>
       </div>
     </div>
@@ -266,8 +349,9 @@ function renderClear() {
         elapsedSeconds: (Date.now() - state.startedAt) / 1000,
         wrongCount: state.wrong,
       }))}
-      <div class="grid-2">
+      <div class="grid-3">
         <button class="btn btn--primary" data-act="restart" data-key="space">🔄 다시 도전</button>
+        <button class="btn" data-act="read">📖 순서 읽기</button>
         <button class="btn" data-act="home">🏠 처음으로</button>
       </div>
     </div>
@@ -285,6 +369,7 @@ export default {
 
   render() {
     if (state.stage === 'setup') return renderSetup();
+    if (state.stage === 'read') return renderRead();
     if (state.outcome === 'clear') return renderClear();
     if (state.outcome === 'over') return renderGameOver();
     return state.mode === CLICK ? renderClickMode() : renderTypingMode();
@@ -293,6 +378,11 @@ export default {
   afterRender() {
     const input = document.getElementById('ord-input');
     if (input) input.focus();
+    const search = document.getElementById('ord-read-search');
+    if (search) {
+      search.value = state.readSearch;
+      wireListFilter('ord-read-search', '.readitem', (query) => { state.readSearch = query; });
+    }
   },
 
   onChange(action, el) {
@@ -338,27 +428,35 @@ export default {
         state.maxWrong = Math.max(1, state.maxWrong - 1);
         break;
 
-      case 'start': {
-        if (state.useUpload && state.uploadedWords) {
-          // The picker shows the filename to confirm the choice; the
-          // certificate reads better without the extension.
-          startGame([...state.uploadedWords], datasets.prettyName(state.uploadedName));
-          break;
-        }
-        const files = DATASETS[state.datasetName];
-        Promise.all(files.map(datasets.loadOrdering))
-          .then((lists) => {
-            const words = lists.flat();
-            if (!words.length) {
-              toast('데이터를 불러오지 못했습니다');
-              return;
-            }
-            startGame(words, state.datasetName);
-            router.rerender();
-          })
-          .catch((err) => toast(err.message));
+      case 'start':
+        // The picker shows the filename to confirm an upload; the certificate
+        // reads better without the extension, which withWords strips.
+        withWords((words, label) => startGame(words, label));
         return;
+
+      case 'read':
+        withWords((words, label) => {
+          state.readWords = words;
+          state.readLabel = label;
+          state.readSearch = '';
+          state.stage = 'read';
+        });
+        return;
+
+      // Jump straight from the book being read into ordering from there on.
+      case 'read-jump': {
+        const at = Number(el.dataset.index);
+        state.mode = el.dataset.mode;
+        const label = at === 0
+          ? state.readLabel
+          : `${state.readLabel} · ${state.readWords[at]}부터`;
+        startGame(state.readWords.slice(at), label);
+        break;
       }
+
+      case 'back-setup':
+        state.stage = 'setup';
+        break;
 
       case 'pick': {
         const index = Number(el.dataset.index);

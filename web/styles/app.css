@@ -993,6 +993,77 @@ details.accordion > .accordion__body {
   padding: 0 16px 16px;
 }
 
+/* ---------- reading list ---------- */
+
+.readlist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.readitem {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.readitem__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.readitem__num {
+  flex: none;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.readitem__ref {
+  flex: 1;
+  min-width: 0;
+}
+
+.readitem__text {
+  margin: 0;
+  font-size: calc(var(--verse-size) * 0.6);
+  line-height: 1.7;
+  color: var(--text);
+}
+
+/* the second version of the same verse, shown under the first */
+.readitem__text--alt {
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-2);
+  font-size: calc(var(--verse-size) * 0.5);
+}
+
+.readitem__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.readitem__acts .btn {
+  flex: 1 1 auto;
+}
+
 /* ---------- certificate ---------- */
 
 .cert {
@@ -1137,6 +1208,7 @@ details.accordion > .accordion__body {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .score { font-size: 44px; }
   .verse { padding: 22px 16px; }
+  .readitem { padding: 14px; }
   .hero__title { font-size: 25px; }
   .cert { padding: 26px 16px; }
 }

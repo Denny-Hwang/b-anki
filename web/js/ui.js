@@ -261,3 +261,33 @@ export function focusInput(id) {
   const node = document.getElementById(id);
   if (node) node.focus();
 }
+
+/**
+ * Live client-side filter for a reading list.
+ *
+ * Filtering in the DOM instead of through a re-render keeps the caret and the
+ * focus in the search box, which a full `render()` would throw away. Items
+ * carry their searchable text in `data-search`, already lower-cased.
+ * An element with id `<inputId>-empty` is shown when nothing matches.
+ */
+export function wireListFilter(inputId, itemSelector, onQuery) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const items = Array.from(document.querySelectorAll(itemSelector));
+  const empty = document.getElementById(`${inputId}-empty`);
+
+  const apply = () => {
+    const query = input.value.trim().toLowerCase();
+    let shown = 0;
+    items.forEach((item) => {
+      const hit = !query || (item.dataset.search || '').includes(query);
+      item.hidden = !hit;
+      if (hit) shown++;
+    });
+    if (empty) empty.hidden = shown > 0;
+    if (onQuery) onQuery(input.value);
+  };
+
+  input.addEventListener('input', apply);
+  apply();
+}

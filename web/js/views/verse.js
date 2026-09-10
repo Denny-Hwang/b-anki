@@ -2,7 +2,7 @@
 
 import {
   html, raw, esc, appbar, progress, segmented, toggle, toast,
-  scoreClass, readInput, celebrate,
+  scoreClass, readInput, celebrate, wireListFilter,
 } from '../ui.js';
 import * as router from '../router.js';
 import * as storage from '../lib/storage.js';
@@ -16,6 +16,7 @@ import { shuffle, todayISO } from '../lib/util.js';
 import { statsPanel, hardCardsPanel } from './stats.js';
 
 const VERSIONS = { 개역개정: 'verse_krv', NIV: 'verse_niv' };
+const BOTH = '둘 다';
 const MAX_HINT = 4;
 
 const state = {};
@@ -28,6 +29,10 @@ function reset() {
     files: [],
     file: '',
     version: '개역개정',
+    readVersion: '개역개정',
+    readSearch: '',
+    focusOnly: false,
+    hasSession: false,
     appMode: '학습',
     testMode: '암송',
     userName: storage.getPrefs().lastUser || '',
@@ -56,11 +61,21 @@ function reset() {
 
 // ---------- session lifecycle ----------
 
-function startSession() {
+/**
+ * Build the queue and enter the run screen.
+ *
+ * `startIndex` is the verse the learner picked while reading: the session then
+ * runs in CSV order from there to the end, or over that one verse alone when
+ * 고른 구절만 is on. Picking a starting point beats the SRS/shuffle ordering —
+ * the learner just said which verse they want.
+ */
+function startSession({ startIndex = null } = {}) {
   const indices = state.rows.map((_, i) => i);
   let order = indices;
 
-  if (state.useSrs && state.userName) {
+  if (startIndex !== null) {
+    order = state.focusOnly ? [startIndex] : indices.slice(startIndex);
+  } else if (state.useSrs && state.userName) {
     const locations = state.rows.map((r) => r.location);
     const saved = storage.loadCardStates(state.userName, state.file, locations);
     const cardStates = {};
@@ -82,6 +97,8 @@ function startSession() {
   state.draft = '';
   state.allDone = false;
   state.sessionEnded = false;
+  state.celebrated = false;
+  state.hasSession = true;
   state.startedAt = Date.now();
 
   if (state.userName) {
@@ -247,6 +264,99 @@ function renderSetup() {
       <button class="btn btn--primary btn--block" data-act="start" data-key="space">
         시작하기
       </button>
+      <button class="btn btn--block" data-act="read">
+        📖 전체 구절 읽어보기
+      </button>
+      <p class="hint-text keep-all" style="text-align:center">
+        읽다가 마음에 남는 구절이 있으면 그 자리에서 바로 암기·테스트로 넘어갈 수 있습니다.
+      </p>
+    </div>
+  `;
+}
+
+// ---------- reading screen ----------
+
+/** The verse text(s) a reading row shows, given the reading version. */
+function readingTexts(row) {
+  const krv = (row.verse_krv || '').trim();
+  const niv = (row.verse_niv || '').trim();
+  if (state.readVersion === 'NIV') return niv ? [niv] : [krv];
+  if (state.readVersion === BOTH) return [krv, niv].filter(Boolean);
+  return krv ? [krv] : [niv];
+}
+
+function readItem(row, index) {
+  const texts = readingTexts(row);
+  const topic = (row.topic || '').trim();
+  const haystack = [row.location, topic, row.verse_krv, row.verse_niv]
+    .filter(Boolean).join(' ').toLowerCase();
+
+  const body = texts
+    .map((text, i) => `<p class="readitem__text${i ? ' readitem__text--alt' : ''} keep-all">${esc(text)}</p>`)
+    .join('');
+  const speak = audio.ttsSupported()
+    ? `<button class="btn btn--sm btn--ghost" data-act="read-speak" data-index="${index}">🔊 듣기</button>`
+    : '';
+
+  return `
+    <article class="readitem" data-search="${esc(haystack)}">
+      <div class="readitem__head">
+        <span class="readitem__num">${index + 1}</span>
+        <div class="readitem__ref">
+          <div class="location" style="text-align:left">📍 ${esc(row.location)}</div>
+          ${topic ? `<div class="topic" style="text-align:left">${esc(topic)}</div>` : ''}
+        </div>
+      </div>
+      ${body}
+      <div class="readitem__acts">
+        ${speak}
+        <button class="btn btn--sm" data-act="read-jump" data-index="${index}" data-mode="학습">📖 학습</button>
+        <button class="btn btn--sm" data-act="read-jump" data-index="${index}" data-mode="암송">🎤 암송</button>
+        <button class="btn btn--sm" data-act="read-jump" data-index="${index}" data-mode="받아쓰기">✍️ 받아쓰기</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderRead() {
+  const scopeLabel = state.focusOnly
+    ? '고른 구절 하나만 학습합니다'
+    : '고른 구절부터 마지막 구절까지 이어서 학습합니다';
+
+  return html`
+    ${raw(appbar({ title: '📖 성경구절 암기', sub: '읽기', font: true }))}
+
+    <div class="stack">
+      <div class="card stack stack-sm">
+        <div class="field">
+          <label class="label" for="read-search">🔎 구절 찾기</label>
+          <input class="input" id="read-search" placeholder="장절 · 주제 · 본문으로 검색"
+            autocomplete="off">
+        </div>
+        <div class="field">
+          <span class="label">표시할 성경 버전</span>
+          <div class="chips">
+            ${['개역개정', 'NIV', BOTH].map((v) => raw(
+              `<button class="chip" data-act="read-version" data-value="${esc(v)}"
+                aria-pressed="${v === state.readVersion}">${esc(v)}</button>`,
+            ))}
+          </div>
+        </div>
+        ${raw(toggle('toggle-focus-only', '고른 구절만 학습', state.focusOnly, scopeLabel))}
+      </div>
+
+      ${state.hasSession && !state.allDone
+        ? raw('<button class="btn btn--primary btn--block" data-act="resume">▶️ 하던 학습 이어서 하기</button>')
+        : ''}
+
+      <p class="meta">전체 ${state.rows.length}구절 · 버튼을 누르면 그 구절부터 바로 시작합니다</p>
+
+      <div class="readlist">
+        ${state.rows.map((row, i) => raw(readItem(row, i)))}
+      </div>
+      <div class="empty" id="read-search-empty" hidden>검색 결과가 없습니다</div>
+
+      <button class="btn btn--block" data-act="back-setup">🔙 설정으로 돌아가기</button>
     </div>
   `;
 }
@@ -285,6 +395,11 @@ function speakButton() {
 }
 
 function navButtons({ extra = '' } = {}) {
+  // The list shows every verse in full, so it stays out of the test modes —
+  // there it would just be the answer sheet.
+  const backToList = state.appMode === '학습'
+    ? '<button class="btn btn--sm btn--ghost" data-act="to-read">📖 목록</button>'
+    : '';
   return html`
     <div class="row">
       ${state.history.length
@@ -292,6 +407,7 @@ function navButtons({ extra = '' } = {}) {
         : ''}
       <button class="btn btn--sm btn--ghost" data-act="skip" data-key="skip">⏭️ 건너뛰기</button>
       ${raw(extra)}
+      ${raw(backToList)}
     </div>
   `;
 }
@@ -442,7 +558,9 @@ function renderQueueEnd() {
 }
 
 function renderDone() {
-  const total = state.rows.length;
+  // The session's own queue, not the whole file — a 읽기 jump can start
+  // partway through, or hold a single verse.
+  const total = state.order.length;
   const detail = Object.entries(state.results).filter(([, r]) => typeof r.score === 'number');
 
   return html`
@@ -478,8 +596,9 @@ function renderDone() {
         </details>
       `) : ''}
 
-      <div class="grid-2">
+      <div class="grid-3">
         <button class="btn" data-act="restart">🔄 다시 학습</button>
+        <button class="btn" data-act="to-read">📖 구절 읽기</button>
         <button class="btn btn--primary" data-act="home" data-key="next">🏠 처음으로</button>
       </div>
     </div>
@@ -493,7 +612,7 @@ function renderRun() {
   if (state.cursor >= state.order.length) return renderQueueEnd();
 
   const card = currentCard();
-  const total = state.rows.length;
+  const total = state.order.length;
   const done = state.completed.size;
   const modeLabel = state.appMode === '학습' ? '학습' : `테스트 · ${state.testMode}`;
 
@@ -539,7 +658,9 @@ export default {
   },
 
   render() {
-    return state.stage === 'setup' ? renderSetup() : renderRun();
+    if (state.stage === 'setup') return renderSetup();
+    if (state.stage === 'read') return renderRead();
+    return renderRun();
   },
 
   afterRender() {
@@ -547,6 +668,11 @@ export default {
     if (input) {
       input.value = state.draft;
       input.focus();
+    }
+    const search = document.getElementById('read-search');
+    if (search) {
+      search.value = state.readSearch;
+      wireListFilter('read-search', '.readitem', (query) => { state.readSearch = query; });
     }
   },
 
@@ -582,7 +708,9 @@ export default {
         state.shuffle = !state.shuffle;
         break;
 
-      case 'start': {
+      case 'start':
+      case 'read': {
+        const wantsReading = action === 'read';
         state.verseCol = VERSIONS[state.version];
         datasets.loadVerses(state.file)
           .then((rows) => {
@@ -592,12 +720,64 @@ export default {
             }
             state.rows = rows;
             if (state.userName) storage.getOrCreateUser(state.userName);
-            startSession();
+            if (wantsReading) {
+              state.readVersion = state.version;
+              state.readSearch = '';
+              state.hasSession = false;
+              state.stage = 'read';
+            } else {
+              startSession();
+            }
             router.rerender();
           })
           .catch((err) => toast(err.message));
         return;
       }
+
+      case 'read-version':
+        state.readVersion = el.dataset.value;
+        break;
+
+      case 'toggle-focus-only':
+        state.focusOnly = !state.focusOnly;
+        break;
+
+      case 'read-speak': {
+        const row = state.rows[Number(el.dataset.index)];
+        if (!row) return;
+        const useNiv = state.readVersion === 'NIV' && row.verse_niv;
+        audio.speak(useNiv ? row.verse_niv : row.verse_krv, useNiv ? 'en-US' : 'ko-KR');
+        return;
+      }
+
+      // Jump straight from the verse being read into memorizing that verse.
+      case 'read-jump': {
+        const mode = el.dataset.mode;
+        if (mode === '학습') {
+          state.appMode = '학습';
+        } else {
+          state.appMode = '테스트';
+          state.testMode = mode;
+        }
+        // 둘 다 is a reading-only option; memorize the Korean text then.
+        state.version = state.readVersion === 'NIV' ? 'NIV' : '개역개정';
+        state.verseCol = VERSIONS[state.version];
+        startSession({ startIndex: Number(el.dataset.index) });
+        break;
+      }
+
+      case 'to-read':
+        state.stage = 'read';
+        break;
+
+      case 'resume':
+        state.stage = 'run';
+        break;
+
+      case 'back-setup':
+        state.stage = 'setup';
+        state.hasSession = false;
+        break;
 
       case 'hide':
         state.learnPhase = 'hidden';
@@ -701,6 +881,7 @@ export default {
       case 'restart':
         state.stage = 'setup';
         state.allDone = false;
+        state.hasSession = false;
         break;
 
       default:
