@@ -14,6 +14,7 @@ import * as grading from '../js/lib/grading.js';
 import * as srs from '../js/lib/srs.js';
 import * as hints from '../js/lib/hints.js';
 import * as quiz from '../js/lib/quiz.js';
+import * as reference from '../js/lib/reference.js';
 import { BIBLE_BOOK_EMOJIS, BIBLE_BOOK_HINTS } from '../js/lib/bible-data.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -183,6 +184,44 @@ section('quiz.summarize', () => {
   fixtures.quiz.summaries.forEach((c, i) => {
     check(`summarize[${i}]`, quiz.summarize(c.results), c.expected);
   });
+});
+
+// ---------- reverse verse lookup (JS only — no Python counterpart) ----------
+
+section('reference.parseReference / gradeReference', () => {
+  const cases = [
+    ['로마서 12:1', '로마서 12:1', 100],
+    ['로마서12:1', '로마서 12:1', 100],
+    ['롬 12:1', '로마서 12:1', 100],
+    ['로마서 12장 1절', '로마서 12:1', 100],
+    ['요한일서 4:8', '요한일서 4:8', 100],
+    ['요한1서 4:8', '요한일서 4:8', 100],
+    ['요 3:16', '요한복음 3:16', 100],
+    ['요일 4:8', '요한일서 4:8', 100],
+    ['고전 13:4', '고린도전서 13:4', 100],
+    ['에베소서 2:8-9', '에베소서 2:8-9', 100],
+    ['에베소서 2:8', '에베소서 2:8-9', 50],
+    ['로마서 12:2', '로마서 12:1', 50],
+    ['로마서 8:1', '로마서 12:1', 0],
+    ['고린도전서 12:1', '로마서 12:1', 0],
+    ['', '로마서 12:1', 0],
+    ['아무말', '로마서 12:1', 0],
+    ['로마서', '로마서 12:1', 0],
+  ];
+  cases.forEach(([typed, answer, score]) => {
+    check(`gradeReference(${typed || '(빈 입력)'}, ${answer})`,
+      reference.gradeReference(typed, answer).score, score);
+  });
+  check('parseReference book', reference.parseReference('빌 4:13'),
+    { book: '빌립보서', chapter: 4, verse: '13' });
+  check('parseReference unknown book', reference.parseReference('없는책 1:1'), null);
+});
+
+section('reference.referenceHint', () => {
+  check('hint 0 uses the topic', reference.referenceHint('로마서 12:1', 0, '예배'), '💡 주제: 예배');
+  check('hint 1 is the book consonant', reference.referenceHint('로마서 12:1', 1), '💡 책 이름의 초성: ㄹ');
+  check('hint 2 is the book', reference.referenceHint('로마서 12:1', 2), '💡 책 이름: 로마서');
+  check('hint 3 adds the chapter', reference.referenceHint('로마서 12:1', 3), '💡 로마서 12장');
 });
 
 // ---------- report ----------

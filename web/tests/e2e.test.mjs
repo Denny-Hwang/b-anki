@@ -244,6 +244,30 @@ async function run() {
   await click(page, '⬅️ 이전');
   ok('이전 버튼이 되돌린다', (await bodyText(page)).includes('진행 0 /'));
 
+  // ---------- theme 1: reverse lookup (verse -> address) ----------
+  console.log('\n테마 1 · 구절 찾기');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '성경구절 암기');
+  await page.waitForSelector('#verse-file');
+  await page.selectOption('#verse-file', 'sample_verses.csv');
+  await click(page, '테스트 · 구절 찾기');
+  await click(page, '시작하기');
+  await page.waitForSelector('#verse-input');
+  const findText = await bodyText(page);
+  ok('구절 찾기는 구절 내용을 보여준다', (await page.locator('.verse').count()) === 1);
+  ok('구절 찾기는 장절을 가린다', !findText.includes('📍'));
+  await click(page, '💡 힌트');
+  ok('힌트가 나온다', (await page.locator('.hintbox').count()) === 1);
+  await page.fill('#verse-input', '창세기 1:1');
+  await click(page, '제출');
+  ok('틀리면 오답과 정답 장절을 보여준다',
+    (await bodyText(page)).includes('아쉽네요') && (await page.locator('.location').count()) === 1);
+  const answerLoc = (await page.locator('.location').innerText()).replace('📍', '').trim();
+  await click(page, '🔄 다시 도전');
+  await page.fill('#verse-input', answerLoc.replace(/ /, ''));
+  await click(page, '제출');
+  ok('장절을 맞히면 정답 처리', (await bodyText(page)).includes('정답입니다'));
+
   // ---------- theme 3: wrong-answer notes ----------
   console.log('\n테마 3 · 오답노트');
   await page.goto(BASE, { waitUntil: 'networkidle' });
