@@ -9,6 +9,7 @@ import * as storage from '../lib/storage.js';
 import * as srs from '../lib/srs.js';
 import * as grading from '../lib/grading.js';
 import * as hints from '../lib/hints.js';
+import * as reference from '../lib/reference.js';
 import * as audio from '../lib/audio.js';
 import * as datasets from '../lib/datasets.js';
 import { verseCertificate } from '../lib/certificate.js';
@@ -214,7 +215,7 @@ function renderSetup() {
     : 0;
 
   return html`
-    ${raw(appbar({ title: '📖 성경구절 암기', sub: '학습 · 암송 · 받아쓰기' }))}
+    ${raw(appbar({ title: '📖 성경구절 암기', sub: '학습 · 암송 · 받아쓰기 · 구절 찾기' }))}
 
     <div class="stack">
       <div class="card stack">
@@ -243,6 +244,7 @@ function renderSetup() {
           { value: '학습', label: '학습', desc: '구절을 보고 가린 뒤 떠올립니다' },
           { value: '암송', label: '테스트 · 암송', desc: '가려진 구절을 기억해 확인합니다' },
           { value: '받아쓰기', label: '테스트 · 받아쓰기', desc: '직접 입력해 정확도를 채점합니다' },
+          { value: '구절찾기', label: '테스트 · 구절 찾기', desc: '구절 내용을 보고 어느 장절인지 맞춥니다' },
         ], state.appMode === '학습' ? '학습' : state.testMode))}
       </div>
 
@@ -313,6 +315,7 @@ function readItem(row, index) {
         <button class="btn btn--sm" data-act="read-jump" data-index="${index}" data-mode="학습">📖 학습</button>
         <button class="btn btn--sm" data-act="read-jump" data-index="${index}" data-mode="암송">🎤 암송</button>
         <button class="btn btn--sm" data-act="read-jump" data-index="${index}" data-mode="받아쓰기">✍️ 받아쓰기</button>
+        <button class="btn btn--sm" data-act="read-jump" data-index="${index}" data-mode="구절찾기">🔎 구절 찾기</button>
       </div>
     </article>
   `;
@@ -539,6 +542,48 @@ function renderDictation(card) {
   `;
 }
 
+/** Reverse test: the verse is shown, the learner names where it comes from. */
+function renderFind(card) {
+  const verse = html`<div class="verse keep-all">${card.text}</div>`;
+  if (!state.submitted) {
+    const hint = state.hintLevel > 0
+      ? html`<div class="hintbox keep-all">${reference.referenceHint(card.location, state.hintLevel - 1, card.topic)}</div>`
+      : '';
+    return html`
+      ${raw(verse)}
+      ${raw(speakButton())}
+      ${raw(hint)}
+      <label class="label" for="verse-input">🔎 이 구절은 어디에 나올까요? (예: 로마서 12:1)</label>
+      <input class="input" id="verse-input" placeholder="책 이름 장:절" autocomplete="off">
+      <div class="grid-2">
+        <button class="btn" data-act="hint" data-key="hint">💡 힌트</button>
+        <button class="btn btn--primary" data-act="submit" data-key="space">제출</button>
+      </div>
+      ${raw(navButtons())}
+    `;
+  }
+
+  const result = reference.gradeReference(state.lastAnswer, card.location);
+  const verdict = result.score === 100
+    ? '✅ 정답입니다!'
+    : result.score === 50
+      ? '⚠️ 책과 장은 맞았어요. 절을 다시 확인해 보세요'
+      : '❌ 아쉽네요';
+  return html`
+    <div class="score ${scoreClass(result.score)}" aria-live="polite">${verdict}</div>
+    <p class="meta" style="text-align:center">
+      내 답: ${state.lastAnswer || '(입력 없음)'}
+    </p>
+    <span class="section-label">정답</span>
+    <div class="location">📍 ${card.location}</div>
+    ${raw(verse)}
+    ${raw(ratingRow(result.score))}
+    ${raw(navButtons({
+      extra: '<button class="btn btn--sm btn--ghost" data-act="retry-dictation">🔄 다시 도전</button>',
+    }))}
+  `;
+}
+
 function renderQueueEnd() {
   const remaining = [...state.skipped].filter((i) => !state.completed.has(i));
   if (!remaining.length) {
@@ -614,10 +659,14 @@ function renderRun() {
   const card = currentCard();
   const total = state.order.length;
   const done = state.completed.size;
-  const modeLabel = state.appMode === '학습' ? '학습' : `테스트 · ${state.testMode}`;
+  const finding = state.appMode !== '학습' && state.testMode === '구절찾기';
+  const modeLabel = state.appMode === '학습'
+    ? '학습'
+    : `테스트 · ${finding ? '구절 찾기' : state.testMode}`;
 
   let body;
   if (state.appMode === '학습') body = renderLearning(card);
+  else if (finding) body = renderFind(card);
   else if (state.testMode === '암송') body = renderRecitation(card);
   else body = renderDictation(card);
 
@@ -626,10 +675,12 @@ function renderRun() {
     <div class="stack">
       ${raw(progress(done, total))}
       <p class="meta">진행 ${done} / ${total}</p>
-      <div class="stack stack-xs">
-        ${card.topic ? raw(`<div class="topic">${esc(card.topic)}</div>`) : ''}
-        <div class="location">📍 ${card.location}</div>
-      </div>
+      ${finding ? '' : raw(`
+        <div class="stack stack-xs">
+          ${card.topic ? `<div class="topic">${esc(card.topic)}</div>` : ''}
+          <div class="location">📍 ${esc(card.location)}</div>
+        </div>
+      `)}
       ${raw(body)}
     </div>
   `;
@@ -821,7 +872,9 @@ export default {
         state.submitted = true;
         state.hintLevel = 0;
         if (card) {
-          const score = grading.computeWordMatch(state.lastAnswer, card.text).score;
+          const score = state.testMode === '구절찾기'
+            ? reference.gradeReference(state.lastAnswer, card.location).score
+            : grading.computeWordMatch(state.lastAnswer, card.text).score;
           if (score >= 80) audio.playSound('success');
           else if (score < 50) audio.playSound('fail');
         }
