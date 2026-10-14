@@ -463,6 +463,13 @@ section('grading.gradeDictation', () => {
   check('the old positional grader would have failed the same spacing change',
     grading.computeWordMatch(verse.replace('아무 것도', '아무것도'), verse).score < 50, true);
 
+  const started = Date.now();
+  const flood = grading.gradeDictation('가'.repeat(200000), verse);
+  check('a flood of text is graded quickly and as a miss',
+    flood.score === 0 && Date.now() - started < 2000, true);
+  check('a correct verse followed by a flood still earns most of the credit',
+    grading.gradeDictation(`${verse} ${'나'.repeat(50000)}`, verse).score >= 90, true);
+
   check('English works too',
     grading.gradeDictation('forgod so loved the world', 'For God so loved the world').score, 100);
   check('same shape as computeWordMatch',

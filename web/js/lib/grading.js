@@ -127,8 +127,13 @@ function matchWords(answerWords, userWords, fuzzyThreshold = 0.6) {
  */
 export function alignToAnswer(userText, answerText) {
   const answerWords = splitWords(answerText);
-  const typed = Array.from(stripPunct((userText || '').normalize('NFC')).replace(/\s+/g, ''));
   const target = Array.from(answerWords.join(''));
+  // Pasting a wall of text must not cost a wall of memory (the table below is
+  // typed × answer): what is typed past three times the answer's length cannot
+  // line up with it anyway.
+  const limit = Math.max(300, target.length * 3);
+  const typed = Array.from(stripPunct((userText || '').normalize('NFC')).replace(/\s+/g, ''))
+    .slice(0, limit);
   if (!answerWords.length || !typed.length) return answerWords.map(() => '');
 
   const n = typed.length;
