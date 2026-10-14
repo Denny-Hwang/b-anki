@@ -698,6 +698,30 @@ select {
   box-shadow: var(--shadow-sm);
 }
 
+.verse__body {
+  max-width: 100%;
+}
+
+/* A hidden word in 구절 찾기: a blank box about as wide as the word. */
+.mask {
+  display: inline-block;
+  height: 0.85em;
+  margin: 0 0.1em;
+  vertical-align: -0.08em;
+  border-radius: 0.28em;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+}
+
+/* The same words once the answer is shown. */
+.was-hidden {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding: 0 0.15em;
+  font-weight: 700;
+}
+
 .verse--muted {
   border: 1px dashed var(--border-strong);
   border-left: 1px dashed var(--border-strong);

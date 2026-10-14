@@ -54,9 +54,15 @@ function similarity(a, b) {
  * partial match when its similarity clears `fuzzyThreshold`.
  */
 export function computeWordMatch(userText, answerText, fuzzyThreshold = 0.6) {
-  const answerWords = splitWords(answerText);
-  const userWords = splitWords(userText);
+  return matchWords(splitWords(answerText), splitWords(userText), fuzzyThreshold);
+}
 
+/**
+ * The word-by-word comparison itself. `userWords` is positional: a '' entry
+ * means the learner has nothing at that position (computeWordMatch never
+ * produces one, gradeDictation does).
+ */
+function matchWords(answerWords, userWords, fuzzyThreshold = 0.6) {
   if (!answerWords.length) {
     return {
       score: 100,
@@ -74,7 +80,7 @@ export function computeWordMatch(userText, answerText, fuzzyThreshold = 0.6) {
   const wordResults = [];
 
   answerWords.forEach((aw, i) => {
-    if (i < userWords.length) {
+    if (i < userWords.length && userWords[i] !== '') {
       const uw = userWords[i];
       const sim = similarity(uw, aw);
       if (sim === 1.0) {
@@ -107,6 +113,88 @@ export function computeWordMatch(userText, answerText, fuzzyThreshold = 0.6) {
     user_words: userWords,
     word_results: wordResults,
   };
+}
+
+/**
+ * Cut the learner's text into the answer's words, whatever spacing they typed.
+ *
+ * The typed characters are lined up with the answer's characters (the same
+ * edit-distance path Levenshtein walks), and each answer word takes the typed
+ * characters that line up with it. A learner who writes 도와주리라 for
+ * "도와 주리라" — or the other way round — is then compared word for word
+ * instead of having every later word shifted out of place. Returns one entry
+ * per answer word; '' where the learner wrote nothing for it.
+ */
+export function alignToAnswer(userText, answerText) {
+  const answerWords = splitWords(answerText);
+  const typed = Array.from(stripPunct((userText || '').normalize('NFC')).replace(/\s+/g, ''));
+  const target = Array.from(answerWords.join(''));
+  if (!answerWords.length || !typed.length) return answerWords.map(() => '');
+
+  const n = typed.length;
+  const m = target.length;
+  const width = m + 1;
+  const same = (i, j) => typed[i].toLowerCase() === target[j].toLowerCase();
+
+  const cost = new Uint16Array((n + 1) * width);
+  for (let j = 0; j <= m; j++) cost[j] = j;
+  for (let i = 1; i <= n; i++) {
+    cost[i * width] = i;
+    for (let j = 1; j <= m; j++) {
+      cost[i * width + j] = Math.min(
+        cost[(i - 1) * width + (j - 1)] + (same(i - 1, j - 1) ? 0 : 1),
+        cost[(i - 1) * width + j] + 1, // a typed character the answer does not have
+        cost[i * width + (j - 1)] + 1, // an answer character the learner skipped
+      );
+    }
+  }
+
+  // Walk the path back from the end. cut[j] ends up as how many typed
+  // characters had been used when the first j answer characters were done.
+  const cut = new Array(m + 1).fill(0);
+  let i = n;
+  let j = m;
+  cut[m] = n;
+  while (i > 0 || j > 0) {
+    cut[j] = i;
+    const here = cost[i * width + j];
+    // On a tie, prefer an exact match, then skipping answer characters from the
+    // end: text that is wrong or short lines up with the start of the verse.
+    if (i > 0 && j > 0 && same(i - 1, j - 1) && here === cost[(i - 1) * width + (j - 1)]) {
+      i--;
+      j--;
+    } else if (j > 0 && here === cost[i * width + (j - 1)] + 1) {
+      j--;
+    } else if (i > 0 && here === cost[(i - 1) * width + j] + 1) {
+      i--;
+    } else {
+      i--;
+      j--;
+    }
+  }
+  cut[j] = i;
+  cut[m] = n; // anything typed after the last answer character stays with the last word
+
+  const words = [];
+  let end = 0;
+  answerWords.forEach((word) => {
+    const start = end;
+    end += Array.from(word).length;
+    words.push(typed.slice(cut[start], cut[end]).join(''));
+  });
+  return words;
+}
+
+/**
+ * Dictation score that ignores how the learner spaced the verse.
+ *
+ * The 개역개정 prints some words apart that people run together (아무 것도,
+ * 도와 주리라, 새 것이) and the reverse; positional word matching would score
+ * the rest of the verse as wrong after the first such word. Same result shape
+ * as computeWordMatch, so renderWordComparison works on it unchanged.
+ */
+export function gradeDictation(userText, answerText, fuzzyThreshold = 0.6) {
+  return matchWords(splitWords(answerText), alignToAnswer(userText, answerText), fuzzyThreshold);
 }
 
 /** Word-by-word comparison markup, colour-coded by match kind. */

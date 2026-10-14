@@ -81,8 +81,15 @@ export function ratingFromScore(score) {
   return AGAIN;
 }
 
-/** Learning order: due cards first (most overdue first), then new, then future. */
-export function sortForSession(cardStates, allIndices, today = todayISO()) {
+/**
+ * Learning order: due cards first (most overdue first), then new, then future.
+ *
+ * Cards that tie on overdue days normally fall back to index order. With
+ * `keepOrder` they keep the order of `allIndices` instead, so a caller that
+ * shuffled first gets a shuffle inside each tier rather than a sorted one.
+ */
+export function sortForSession(cardStates, allIndices, today = todayISO(),
+  { keepOrder = false } = {}) {
   const due = [];
   const fresh = [];
   const future = [];
@@ -99,6 +106,7 @@ export function sortForSession(cardStates, allIndices, today = todayISO()) {
     }
   });
 
-  due.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  // Array.prototype.sort is stable, so a 0 here leaves ties where they were.
+  due.sort((a, b) => a[0] - b[0] || (keepOrder ? 0 : a[1] - b[1]));
   return [...due.map(([, idx]) => idx), ...fresh, ...future];
 }

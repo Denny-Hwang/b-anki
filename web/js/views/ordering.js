@@ -10,7 +10,7 @@ import * as audio from '../lib/audio.js';
 import * as datasets from '../lib/datasets.js';
 import { BIBLE_BOOK_EMOJIS, BIBLE_BOOK_HINTS, getBookEmoji } from '../lib/bible-data.js';
 import { orderingCertificate } from '../lib/certificate.js';
-import { shuffle } from '../lib/util.js';
+import { shuffleSpread } from '../lib/util.js';
 
 const DATASETS = {
   '구약 39권': ['bible_books_ot.csv'],
@@ -78,7 +78,7 @@ function withWords(then) {
 function startGame(words, label) {
   state.words = words;
   state.datasetLabel = label;
-  state.shuffled = shuffle(words.map((_, i) => i));
+  state.shuffled = shuffleSpread(words.map((_, i) => i));
   state.cursor = 0;
   state.wrong = 0;
   state.correctSoFar = [];
