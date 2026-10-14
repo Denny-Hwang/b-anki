@@ -174,7 +174,7 @@ CI에서 두 검사가 모두 돌아갑니다.
 |---|---|---|
 | `location` | ✅ | Book, chapter, and verse (e.g. `Romans 8:28`) — also the SRS card key |
 | `verse_krv` | ✅ | Verse text in Korean (개역개정 — 개역한글과 섞이지 않게 주의) |
-| `verse_niv` | ✅ | Verse text in English (NIV) |
+| `verse_niv` | ✅ | Verse text in English (NIV 2011 — 1984판과 표현이 다른 구절이 있으니 주의) |
 | `topic` | | 교재 진도 등 구절의 주제 — 있으면 장절 위에 함께 표시됩니다 |
 
 ```csv
@@ -184,7 +184,7 @@ location,verse_krv,verse_niv
 
 `data/제자양육 성경암송.csv`가 `topic` 열을 쓰는 예입니다.
 
-> **본문 표기**: `verse_krv`는 대한성서공회 **개역개정**을 따릅니다. 구두점은 넣지 않는 것이
+> **본문 표기**: `verse_krv`는 대한성서공회 **개역개정**(현행 4판)을 따릅니다. 구두점은 넣지 않는 것이
 > 이 저장소의 관례이고(채점도 구두점을 무시합니다), 띄어쓰기는 틀려도 받아쓰기 점수에
 > 영향이 없습니다. 개역한글(1961)과 어휘가 다른 구절이 많으니(예: 로마서 12:1 `산 제물` ·
 > `너희가 드릴`) 다른 자료에서 옮길 때 판본을 꼭 확인하세요.
