@@ -47,6 +47,50 @@ async function bodyText(page) {
   return page.locator('#app').innerText();
 }
 
+/** The "📍 장절" shown above a card, without the pin. */
+async function currentLocation(page) {
+  return (await page.locator('.location').first().innerText()).replace('📍', '').trim();
+}
+
+/** The verse_krv text for a location, read straight out of the shipped CSV. */
+async function verseTextFor(page, file, location) {
+  return page.evaluate(async ({ file, location }) => {
+    const csv = await (await fetch(`./data/${encodeURIComponent(file)}`)).text();
+    const mod = await import('./js/lib/csv.js');
+    return mod.parseCsv(csv).find((r) => r.location === location).verse_krv;
+  }, { file, location });
+}
+
+async function csvLocations(page, file) {
+  return page.evaluate(async (name) => {
+    const csv = await (await fetch(`./data/${encodeURIComponent(name)}`)).text();
+    const mod = await import('./js/lib/csv.js');
+    return mod.parseCsv(csv).map((r) => r.location);
+  }, file);
+}
+
+/** The review log saved for a learner. */
+async function reviewLog(page, name) {
+  return page.evaluate(
+    (n) => JSON.parse(localStorage.getItem(`banki.v1.user.${n}`) || '{}').log || [], name);
+}
+
+/** Pretend `ms` more milliseconds have passed (the app reads Date.now()). */
+async function skew(page, ms) {
+  await page.evaluate((v) => { window.__skew += v; }, ms);
+}
+
+/** Open the verse setup screen as a named learner on one of the shipped sets. */
+async function openVerseSetup(page, name, file) {
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '성경구절 암기');
+  await page.waitForSelector('#verse-name');
+  await page.fill('#verse-name', name);
+  await page.locator('#verse-name').blur();
+  await page.waitForTimeout(120);
+  if (file) await page.selectOption('#verse-file', file);
+}
+
 // A nested html`` template interpolated without raw() gets escaped and renders
 // as visible markup. It shipped once; this catches the whole class.
 const LEAKED_MARKUP = /class="|<\/?(?:p|div|span|button|b|s|ul|li|hr|br)\b/;
@@ -62,6 +106,12 @@ async function run() {
   const browser = await chromium.launch(
     CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {});
   const page = await browser.newPage({ viewport: { width: 900, height: 1200 } });
+  // Lets a test move the clock the app times answers with.
+  await page.addInitScript(() => {
+    const realNow = Date.now.bind(Date);
+    window.__skew = 0;
+    Date.now = () => realNow() + window.__skew;
+  });
   const errors = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   page.on('console', (msg) => {
@@ -128,6 +178,10 @@ async function run() {
   ok('진도가 localStorage에 저장된다',
     stored && Object.keys(stored.cards).length === 1 && stored.log.length === 1);
   ok('SM-2 일정이 잡힌다', stored && Object.values(stored.cards)[0].due_date > '2000-01-01');
+  ok('반응 시간이 기록에 남는다',
+    stored && stored.log[0].mode === '받아쓰기' && stored.log[0].hints === 1
+      && stored.log[0].ok === true && typeof stored.log[0].ratio === 'number',
+    JSON.stringify(stored && stored.log[0]));
 
   // ---------- theme 1: learning mode ----------
   console.log('\n테마 1 · 학습 모드');
@@ -238,8 +292,9 @@ async function run() {
   await page.waitForTimeout(200);
   ok('암송 모드는 구절을 가린다', (await bodyText(page)).includes('버튼을 눌러 구절을 확인'));
   await click(page, '구절 확인');
-  ok('확인하면 구절과 평가 버튼이 나온다', (await bodyText(page)).includes('쉬움'));
-  await click(page, '🎉 쉬움');
+  ok('확인하면 구절과 자기 평가 버튼이 나온다',
+    (await bodyText(page)).includes('막힘없이 외웠어요'));
+  await click(page, '✅ 막힘없이 외웠어요');
   ok('평가하면 다음 카드로 간다', (await bodyText(page)).includes('진행 1 /'));
   await click(page, '⬅️ 이전');
   ok('이전 버튼이 되돌린다', (await bodyText(page)).includes('진행 0 /'));
@@ -267,6 +322,247 @@ async function run() {
   await page.fill('#verse-input', answerLoc.replace(/ /, ''));
   await click(page, '제출');
   ok('장절을 맞히면 정답 처리', (await bodyText(page)).includes('정답입니다'));
+
+  // ---------- theme 1: automatic difficulty from response time ----------
+  console.log('\n테마 1 · 암송 · 자동 난이도 · 재출제');
+  await openVerseSetup(page, '자동난이도', 'sample_verses.csv');
+  await click(page, '테스트 · 암송');
+  ok('자동 난이도 스위치가 보인다', (await bodyText(page)).includes('자동 난이도'));
+  await click(page, '시작하기');
+  await page.waitForSelector('.location');
+  const firstCard = await currentLocation(page);
+
+  await click(page, '구절 확인');
+  let recited = await bodyText(page);
+  ok('암송은 자기 평가 세 단계를 묻는다',
+    recited.includes('막힘없이 외웠어요') && recited.includes('조금 막혔어요')
+      && recited.includes('기억 안 났어요'));
+  ok('걸린 시간이 보인다', /⏱️ \d+초/.test(recited), recited.slice(0, 200));
+  ok('네 단계 버튼은 접혀 있다',
+    !(await page.locator('button', { hasText: '🎉 쉬움' }).first().isVisible()));
+  await assertNoLeakedMarkup(page, '자동 난이도');
+  await shot(page, '17-verse-auto-recite');
+
+  await click(page, '❌ 기억 안 났어요');
+  ok('못 외운 카드는 완료로 세지 않는다', (await bodyText(page)).includes('진행 0 /'));
+
+  const nextThree = [];
+  for (let i = 0; i < 3; i++) {
+    nextThree.push(await currentLocation(page));
+    await click(page, '구절 확인');
+    await click(page, '✅ 막힘없이 외웠어요');
+  }
+  ok('못 외운 카드 대신 다른 카드가 먼저 나온다', !nextThree.includes(firstCard),
+    `${firstCard} / ${nextThree.join(', ')}`);
+  ok('세 장 뒤에 그 카드가 다시 나온다', (await currentLocation(page)) === firstCard,
+    await currentLocation(page));
+
+  // the second time round is practice: rated, but not logged as another review
+  await click(page, '구절 확인');
+  await click(page, '✅ 막힘없이 외웠어요');
+  ok('다시 나온 카드까지 끝내면 진행이 오른다', (await bodyText(page)).includes('진행 4 /'));
+  let log = await reviewLog(page, '자동난이도');
+  ok('다시 연습한 번은 복습 기록을 늘리지 않는다', log.length === 4, `${log.length}건`);
+  ok('기록: 다시 → 쉬움 × 3 (빠르고 막힘없음)',
+    log.map((r) => r.rating).join() === '1,4,4,4', log.map((r) => r.rating).join());
+  ok('기록에 모드와 반응 시간이 남는다',
+    log.every((r) => r.mode === '암송' && typeof r.seconds === 'number' && r.hints === 0));
+
+  // a clean recitation that took forever is only "hard"
+  await skew(page, 10 * 60 * 1000);
+  await click(page, '구절 확인');
+  ok('느리면 느림으로 표시된다', (await bodyText(page)).includes('느림'));
+  await click(page, '✅ 막힘없이 외웠어요');
+  log = await reviewLog(page, '자동난이도');
+  ok('막힘없이 외웠어도 오래 걸리면 어려움', log[log.length - 1].rating === 2,
+    String(log[log.length - 1].rating));
+
+  // the learner can overrule the automatic rating
+  await click(page, '구절 확인');
+  await click(page, '난이도 직접 고르기');
+  await click(page, '😅 어려움');
+  log = await reviewLog(page, '자동난이도');
+  ok('직접 고른 난이도가 우선한다', log[log.length - 1].rating === 2 && log.length === 6,
+    `${log.length}건 / ${log[log.length - 1].rating}`);
+
+  // going back after a miss pulls the card out of its later slot
+  const missedCard = await currentLocation(page);
+  await click(page, '구절 확인');
+  await click(page, '❌ 기억 안 났어요');
+  await click(page, '⬅️ 이전');
+  ok('이전 버튼이 못 외운 카드를 바로 되돌린다', (await currentLocation(page)) === missedCard);
+  await click(page, '구절 확인');
+  await click(page, '✅ 막힘없이 외웠어요');
+  let repeats = 0;
+  for (let guard = 0; guard < 12; guard++) {
+    if ((await bodyText(page)).includes('증명합니다')) break;
+    if ((await currentLocation(page)) === missedCard) repeats++;
+    await click(page, '구절 확인');
+    await click(page, '✅ 막힘없이 외웠어요');
+  }
+  ok('되돌린 카드는 뒤에 또 나오지 않는다', repeats === 0, `${repeats}번`);
+  ok('끝까지 마치면 수료증이 나온다', (await bodyText(page)).includes('증명합니다'));
+
+  console.log('\n테마 1 · 받아쓰기 · 자동 난이도 · 띄어쓰기');
+  await openVerseSetup(page, '받아쓰기자동', 'sample_verses.csv');
+  await click(page, '테스트 · 받아쓰기');
+  await click(page, '시작하기');
+  await page.waitForSelector('#verse-input');
+
+  let loc = await currentLocation(page);
+  await page.fill('#verse-input', '전혀 다른 문장');
+  await click(page, '제출');
+  ok('틀리면 자동 평가는 다시', (await bodyText(page)).includes('자동 평가 🔁 다시'));
+  await click(page, '🔄 다시 도전');
+  await page.fill('#verse-input', await verseTextFor(page, 'sample_verses.csv', loc));
+  await click(page, '제출');
+  const retried = await bodyText(page);
+  ok('다시 도전해서 맞혀도 자동 평가는 첫 시도 기준',
+    retried.includes('100%') && retried.includes('첫 시도(0%) 기준') && retried.includes('자동 평가 🔁 다시'),
+    retried.slice(0, 260));
+  await click(page, '➡️ 다음');
+  ok('틀린 카드는 완료로 세지 않고 다시 나온다', (await bodyText(page)).includes('진행 0 /'));
+
+  loc = await currentLocation(page);
+  await page.fill('#verse-input', await verseTextFor(page, 'sample_verses.csv', loc));
+  await click(page, '제출');
+  ok('빠르고 정확하면 쉬움', (await bodyText(page)).includes('자동 평가 🎉 쉬움'));
+  await click(page, '➡️ 다음');
+
+  loc = await currentLocation(page);
+  const spaced = await verseTextFor(page, 'sample_verses.csv', loc);
+  await skew(page, 10 * 60 * 1000);
+  await page.fill('#verse-input', spaced);
+  await click(page, '제출');
+  ok('정확해도 오래 걸리면 어려움', (await bodyText(page)).includes('자동 평가 😅 어려움'));
+  await click(page, '➡️ 다음');
+
+  loc = await currentLocation(page);
+  await click(page, '💡 힌트');
+  await page.fill('#verse-input', await verseTextFor(page, 'sample_verses.csv', loc));
+  await click(page, '제출');
+  ok('힌트를 한 번 쓰면 괜찮음이 한계', (await bodyText(page)).includes('자동 평가 🙂 괜찮음'));
+  await click(page, '➡️ 다음');
+
+  loc = await currentLocation(page);
+  const runTogether = (await verseTextFor(page, 'sample_verses.csv', loc)).replace(/\s+/g, '');
+  await page.fill('#verse-input', runTogether);
+  await click(page, '제출');
+  ok('띄어쓰기를 모두 붙여 써도 100%', (await bodyText(page)).includes('100%'),
+    (await bodyText(page)).slice(0, 200));
+  await assertNoLeakedMarkup(page, '받아쓰기 자동 평가');
+  log = await reviewLog(page, '받아쓰기자동');
+  ok('받아쓰기 기록: 다시 · 쉬움 · 어려움 · 괜찮음',
+    log.map((r) => r.rating).join() === '1,4,2,3', log.map((r) => r.rating).join());
+
+  // ---------- theme 1: reverse lookup with part of the verse hidden ----------
+  console.log('\n테마 1 · 구절 찾기 · 가리기');
+  await openVerseSetup(page, '가리기테스터', 'sample_verses.csv');
+  await click(page, '테스트 · 구절 찾기');
+  ok('구절 보여주기 설정이 보인다', (await bodyText(page)).includes('구절 보여주기'));
+  ok('전체 보기가 기본', (await page.locator('.chip[aria-pressed="true"]', { hasText: '전체 보기' }).count()) === 1);
+  ok('전체 보기일 때는 가리는 정도가 없다', !(await bodyText(page)).includes('가리는 정도'));
+  await click(page, '앞부분만');
+  ok('가리는 정도 선택이 나타난다', (await bodyText(page)).includes('가리는 정도'));
+  await click(page, '70%');
+  await shot(page, '18-verse-mask-setup');
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '성경구절 암기');
+  await page.waitForSelector('#verse-file');
+  await page.selectOption('#verse-file', 'sample_verses.csv');
+  await click(page, '테스트 · 구절 찾기');
+  ok('가리기 설정이 다음에도 남아 있다',
+    (await page.locator('.chip[aria-pressed="true"]', { hasText: '앞부분만' }).count()) === 1
+      && (await page.locator('.chip[aria-pressed="true"]', { hasText: '70%' }).count()) === 1);
+  await click(page, '시작하기');
+  await page.waitForSelector('#verse-input');
+
+  const masked = await page.evaluate(async () => {
+    const csv = await (await fetch('./data/sample_verses.csv')).text();
+    const mod = await import('./js/lib/csv.js');
+    const rows = mod.parseCsv(csv);
+    const shown = document.querySelector('.verse__body').innerText.trim();
+    const row = rows.find((r) => r.verse_krv.startsWith(shown));
+    return {
+      shown,
+      verse: row ? row.verse_krv : null,
+      masks: document.querySelectorAll('.verse__body .mask').length,
+      speak: !!document.querySelector('[data-act="speak"]'),
+    };
+  });
+  const verseWords = masked.verse ? masked.verse.split(/\s+/) : [];
+  const expectedHidden = Math.min(verseWords.length - 1, Math.max(1, Math.round(verseWords.length * 0.7)));
+  ok('앞부분만: 뒤쪽 단어가 가려진다',
+    masked.verse && masked.masks === expectedHidden
+      && masked.shown === verseWords.slice(0, verseWords.length - expectedHidden).join(' '),
+    JSON.stringify(masked));
+  const hiddenTail = verseWords.slice(verseWords.length - expectedHidden).join(' ');
+  const maskedHtml = await page.locator('.verse__body').innerHTML();
+  ok('가려진 부분의 글자는 화면(HTML)에도 없다',
+    !maskedHtml.includes(hiddenTail) && !masked.shown.includes(hiddenTail), hiddenTail);
+  ok('가린 동안에는 구절 듣기를 숨긴다', masked.speak === false);
+  await assertNoLeakedMarkup(page, '구절 찾기 가리기');
+  await shot(page, '19-verse-mask-run');
+
+  await page.fill('#verse-input', '창세기 1:1');
+  await click(page, '제출');
+  const afterMask = await page.evaluate(() => ({
+    marked: [...document.querySelectorAll('.verse__body .was-hidden')].map((n) => n.textContent),
+    masks: document.querySelectorAll('.verse__body .mask').length,
+    text: document.querySelector('.verse__body').innerText,
+  }));
+  ok('정답을 확인하면 가렸던 단어가 강조되어 나온다',
+    afterMask.masks === 0 && afterMask.marked.length === expectedHidden
+      && afterMask.text.trim() === masked.verse,
+    JSON.stringify(afterMask));
+  await shot(page, '20-verse-mask-revealed');
+
+  // scattered gaps keep the opening visible only by chance, but never hide everything
+  await click(page, '➡️ 다음');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await click(page, '성경구절 암기');
+  await page.waitForSelector('#verse-file');
+  await page.selectOption('#verse-file', 'sample_verses.csv');
+  await click(page, '테스트 · 구절 찾기');
+  await click(page, '군데군데 가리기');
+  await click(page, '50%');
+  await click(page, '시작하기');
+  await page.waitForSelector('#verse-input');
+  const scattered = await page.evaluate(() => ({
+    masks: document.querySelectorAll('.verse__body .mask').length,
+    visible: document.querySelector('.verse__body').innerText.trim().split(/\s+/).filter(Boolean).length,
+  }));
+  ok('군데군데: 일부만 가려지고 일부는 보인다', scattered.masks >= 1 && scattered.visible >= 1,
+    JSON.stringify(scattered));
+
+  // ---------- theme 1: random order must hold up with SRS on ----------
+  console.log('\n테마 1 · 랜덤 순서');
+  const sampleOrder = await csvLocations(page, 'sample_verses.csv');
+  let reordered = 0;
+  let touching = 0;
+  for (let round = 0; round < 4; round++) {
+    await openVerseSetup(page, '랜덤테스터', 'sample_verses.csv');
+    await click(page, '테스트 · 암송');
+    if (round === 0) {
+      ok('SRS가 켜져 있다', (await page.locator('[data-act="toggle-srs"][aria-pressed="true"]').count()) === 1);
+      await click(page, '랜덤 순서');
+    } else {
+      ok('랜덤 순서 설정이 다음에도 남아 있다',
+        (await page.locator('[data-act="toggle-shuffle"][aria-pressed="true"]').count()) === 1);
+    }
+    await click(page, '시작하기');
+    await page.waitForSelector('.location');
+    const seen = [];
+    for (let i = 0; i < 6; i++) {
+      seen.push(sampleOrder.indexOf(await currentLocation(page)));
+      await click(page, '건너뛰기');
+    }
+    if (seen.join() !== '0,1,2,3,4,5') reordered++;
+    for (let i = 1; i < seen.length; i++) if (Math.abs(seen[i] - seen[i - 1]) === 1) touching++;
+  }
+  ok('SRS가 켜져 있어도 구절이 섞여 나온다', reordered === 4, `${reordered}/4`);
+  ok('이어지는 구절이 붙어 나오지 않는다', touching === 0, `${touching}쌍`);
 
   // ---------- theme 3: wrong-answer notes ----------
   console.log('\n테마 3 · 오답노트');

@@ -49,6 +49,30 @@ export function shuffle(items, rng = Math.random) {
   return items;
 }
 
+/**
+ * Shuffle that also breaks up "runs": two items that sat next to each other in
+ * the input (…, 5, 6, …) never end up next to each other in the output.
+ *
+ * A perfectly fair shuffle of 25 items still leaves about two such pairs on
+ * average, and one is enough for a learner to feel the list "mostly came out
+ * in order". About one fair shuffle in seven has none, so this simply draws
+ * again until it gets one: the result is uniform over the lists without
+ * neighbours. Lists too short to have such an arrangement (under 4) fall back
+ * to the last plain shuffle. Items must be unique.
+ */
+export function shuffleSpread(items, rng = Math.random, attempts = 200) {
+  const position = new Map(items.map((item, i) => [item, i]));
+  const hasNeighbours = () => items.some(
+    (item, i) => i > 0 && Math.abs(position.get(item) - position.get(items[i - 1])) === 1,
+  );
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    shuffle(items, rng);
+    if (!hasNeighbours()) break;
+  }
+  return items;
+}
+
 export function escapeHtml(text) {
   return String(text ?? '')
     .replace(/&/g, '&amp;')

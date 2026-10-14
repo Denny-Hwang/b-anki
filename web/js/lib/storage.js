@@ -148,7 +148,12 @@ export function saveCardState(name, setName, location, state) {
   writeUser(user, record);
 }
 
-export function logReview(name, setName, location, rating, score) {
+/**
+ * `pace` is optional response-time data for a test answer:
+ * { mode, seconds, ratio, ok, hints }. It rides along in the log so backups
+ * carry it and the learner's usual pace can be worked out later.
+ */
+export function logReview(name, setName, location, rating, score, pace = null) {
   const user = normalizeName(name);
   const record = readUser(user);
   record.log.push({
@@ -157,9 +162,22 @@ export function logReview(name, setName, location, rating, score) {
     rating,
     score: score ?? null,
     reviewed_at: new Date().toISOString(),
+    ...(pace || {}),
   });
   if (record.log.length > MAX_LOG) record.log = record.log.slice(-MAX_LOG);
   writeUser(user, record);
+}
+
+/**
+ * Pace ratios (seconds ÷ expected) of this learner's good, hint-free answers in
+ * one test mode, oldest first — the raw material for their usual speed.
+ */
+export function getPaceRatios(name, mode, limit = 30) {
+  const record = readUser(normalizeName(name));
+  return record.log
+    .filter((r) => r.mode === mode && r.ok === true && !r.hints && Number.isFinite(r.ratio))
+    .map((r) => r.ratio)
+    .slice(-limit);
 }
 
 // ---------- sessions ----------

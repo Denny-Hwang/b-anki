@@ -15,6 +15,10 @@ import * as srs from '../js/lib/srs.js';
 import * as hints from '../js/lib/hints.js';
 import * as quiz from '../js/lib/quiz.js';
 import * as reference from '../js/lib/reference.js';
+import * as pace from '../js/lib/pace.js';
+import * as mask from '../js/lib/mask.js';
+import * as storage from '../js/lib/storage.js';
+import { shuffleSpread, makeRng } from '../js/lib/util.js';
 import { BIBLE_BOOK_EMOJIS, BIBLE_BOOK_HINTS } from '../js/lib/bible-data.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -224,13 +228,264 @@ section('reference.referenceHint', () => {
   check('hint 3 adds the chapter', reference.referenceHint('로마서 12:1', 3), '💡 로마서 12장');
 });
 
+// ---------- ordering (JS only) ----------
+
+const range = (n) => Array.from({ length: n }, (_, i) => i);
+
+section('util.shuffleSpread', () => {
+  const touching = (arr) => arr
+    .reduce((n, v, i) => n + (i && Math.abs(v - arr[i - 1]) === 1 ? 1 : 0), 0);
+
+  [4, 10, 25, 66].forEach((n) => {
+    let clashes = 0;
+    let identity = 0;
+    let permutation = true;
+    for (let seed = 1; seed <= 300; seed++) {
+      const out = shuffleSpread(range(n), makeRng(seed));
+      clashes += touching(out);
+      if (out.every((v, i) => v === i)) identity++;
+      if ([...out].sort((a, b) => a - b).some((v, i) => v !== i)) permutation = false;
+    }
+    check(`n=${n} is still a permutation`, permutation, true);
+    check(`n=${n} never leaves neighbours together`, clashes, 0);
+    check(`n=${n} never returns the input order`, identity, 0);
+  });
+
+  [0, 1, 2, 3].forEach((n) => {
+    const out = shuffleSpread(range(n), makeRng(7));
+    check(`n=${n} short lists terminate as permutations`, [...out].sort(), range(n));
+  });
+
+  const counts = new Array(10).fill(0);
+  for (let seed = 1; seed <= 4000; seed++) counts[shuffleSpread(range(10), makeRng(seed))[0]]++;
+  check('every item can open the list about equally often',
+    counts.every((c) => c > 280 && c < 520), true);
+});
+
+section('srs.sortForSession keepOrder', () => {
+  const today = '2026-09-10';
+  const overdue = {};
+  range(5).forEach((i) => {
+    overdue[i] = {
+      ...srs.newCardState(), repetitions: 1, last_reviewed: '2026-09-07', due_date: '2026-09-08',
+    };
+  });
+  check('default: ties fall back to index order',
+    srs.sortForSession(overdue, [3, 1, 4, 0, 2], today), [0, 1, 2, 3, 4]);
+  check('keepOrder: ties keep the order given',
+    srs.sortForSession(overdue, [3, 1, 4, 0, 2], today, { keepOrder: true }), [3, 1, 4, 0, 2]);
+
+  const fresh = {};
+  range(3).forEach((i) => { fresh[i] = srs.newCardState(); });
+  check('new cards keep the order given', srs.sortForSession(fresh, [2, 0, 1], today), [2, 0, 1]);
+
+  const mixed = {
+    0: srs.newCardState(),
+    1: { ...overdue[0], due_date: '2026-09-09' },
+    2: { ...overdue[0], due_date: '2026-09-01' },
+    3: { ...overdue[0], due_date: '2026-09-30' },
+  };
+  check('keepOrder still puts overdue first, then new, then future',
+    srs.sortForSession(mixed, [3, 0, 1, 2], today, { keepOrder: true }), [2, 1, 0, 3]);
+});
+
+// ---------- response-time difficulty (JS only) ----------
+
+section('pace.Stopwatch', () => {
+  let t = 1000;
+  const watch = new pace.Stopwatch(() => t);
+  t = 3000;
+  check('counts elapsed time', watch.elapsedMs(), 2000);
+  watch.pause();
+  t = 10000;
+  check('stands still while paused', watch.elapsedMs(), 2000);
+  watch.resume();
+  t = 11000;
+  check('carries on after resume', watch.elapsedMs(), 3000);
+  watch.pause();
+  watch.pause();
+  t = 12000;
+  watch.resume();
+  watch.resume();
+  check('double pause/resume is harmless', watch.elapsedMs(), 3000);
+  watch.reset();
+  check('reset starts again from zero', watch.elapsedMs(), 0);
+});
+
+section('pace.expectedSeconds / formatSeconds', () => {
+  const verse = '하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열'; // 10 words, 16 characters
+  check('recite', pace.expectedSeconds(pace.MODE_RECITE, verse), 3 + 0.65 * 10);
+  check('dictation', pace.expectedSeconds(pace.MODE_DICTATION, verse), 5 + 0.5 * 16);
+  check('find', pace.expectedSeconds(pace.MODE_FIND, verse), 6 + 0.3 * 10);
+  check('longer verses take longer',
+    pace.expectedSeconds(pace.MODE_DICTATION, `${verse} ${verse}`)
+      > pace.expectedSeconds(pace.MODE_DICTATION, verse), true);
+  check('0초', pace.formatSeconds(0), '0초');
+  check('14초', pace.formatSeconds(14.4), '14초');
+  check('1분 5초', pace.formatSeconds(65), '1분 5초');
+  check('2분', pace.formatSeconds(120), '2분');
+});
+
+section('pace.paceBaseline / speedTier', () => {
+  check('no history uses the default', pace.paceBaseline([]), pace.DEFAULT_BASELINE);
+  check('junk values are ignored', pace.paceBaseline([NaN, -1, 0, 99]), pace.DEFAULT_BASELINE);
+  const steady = new Array(30).fill(1.0);
+  check('history pulls the baseline toward the learner',
+    pace.paceBaseline(steady), (1.0 * 30 + pace.DEFAULT_BASELINE * 5) / 35);
+  check('a slow learner gets a slower baseline',
+    pace.paceBaseline(new Array(30).fill(3)) > pace.paceBaseline(steady), true);
+  check('only the latest 30 count',
+    pace.paceBaseline([...new Array(50).fill(3), ...steady]), pace.paceBaseline(steady));
+  check('baseline stays in range', pace.paceBaseline(new Array(30).fill(11)) <= 4, true);
+
+  check('well under the usual pace is fast', pace.speedTier(0.5, 1.6), 'fast');
+  check('the usual pace is normal', pace.speedTier(1.6, 1.6), 'normal');
+  check('far over the usual pace is slow', pace.speedTier(3.0, 1.6), 'slow');
+  check('the same time is slower for a quick learner',
+    [pace.speedTier(1.6, 1.6), pace.speedTier(1.6, 0.8)], ['normal', 'slow']);
+});
+
+section('pace.autoRating', () => {
+  const { AGAIN, HARD, GOOD, EASY } = srs;
+  ['fast', 'normal', 'slow'].forEach((tier) => {
+    check(`wrong is AGAIN whatever the speed (${tier})`, pace.autoRating({ accuracy: 'fail', tier }), AGAIN);
+    check(`shaky is HARD whatever the speed (${tier})`, pace.autoRating({ accuracy: 'weak', tier }), HARD);
+  });
+  check('solid + fast = EASY', pace.autoRating({ accuracy: 'solid', tier: 'fast' }), EASY);
+  check('solid + normal = GOOD', pace.autoRating({ accuracy: 'solid', tier: 'normal' }), GOOD);
+  check('solid + slow = HARD', pace.autoRating({ accuracy: 'solid', tier: 'slow' }), HARD);
+  check('okay + fast tops out at GOOD', pace.autoRating({ accuracy: 'okay', tier: 'fast' }), GOOD);
+  check('okay + slow = HARD', pace.autoRating({ accuracy: 'okay', tier: 'slow' }), HARD);
+  check('one hint caps at GOOD', pace.autoRating({ accuracy: 'solid', tier: 'fast', hints: 1 }), GOOD);
+  check('two hints cap at HARD', pace.autoRating({ accuracy: 'solid', tier: 'fast', hints: 2 }), HARD);
+  check('hints never rescue a miss', pace.autoRating({ accuracy: 'fail', tier: 'fast', hints: 3 }), AGAIN);
+
+  check('score → accuracy',
+    [100, 95, 94, 80, 79, 50, 49, 0].map(pace.accuracyFromScore),
+    ['solid', 'solid', 'okay', 'okay', 'weak', 'weak', 'fail', 'fail']);
+  check('recitation reports map to accuracy',
+    [pace.SELF_REPORT.perfect, pace.SELF_REPORT.shaky, pace.SELF_REPORT.forgot],
+    ['solid', 'weak', 'fail']);
+});
+
+section('pace.repeatGap', () => {
+  const { AGAIN, HARD, GOOD, EASY } = srs;
+  check('a miss comes back after 3 cards', pace.repeatGap(AGAIN, 0), 3);
+  check('and again if missed again', pace.repeatGap(AGAIN, 1), 3);
+  check('but not more than twice', pace.repeatGap(AGAIN, 2), 0);
+  check('a struggle comes back once, later', pace.repeatGap(HARD, 0), 6);
+  check('not twice', pace.repeatGap(HARD, 1), 0);
+  check('good and easy never repeat', [pace.repeatGap(GOOD, 0), pace.repeatGap(EASY, 0)], [0, 0]);
+});
+
+section('storage pace log', () => {
+  // Node has no localStorage, so storage falls back to memory and warns once.
+  const warn = console.warn;
+  console.warn = () => {};
+  const name = '페이스테스터';
+  storage.getOrCreateUser(name);
+  const entry = (rating, mode, ratio, ok, hints) => storage.logReview(
+    name, 'set.csv', '요 3:16', rating, 100, { mode, seconds: ratio * 10, ratio, ok, hints });
+  entry(3, pace.MODE_DICTATION, 1.0, true, 0);
+  entry(3, pace.MODE_DICTATION, 1.2, true, 0);
+  entry(1, pace.MODE_DICTATION, 4.0, false, 0); // wrong: not a sample of the learner's pace
+  entry(3, pace.MODE_DICTATION, 2.0, true, 1); // hinted: not either
+  entry(3, pace.MODE_FIND, 0.5, true, 0); // another mode
+  storage.logReview(name, 'set.csv', '요 3:16', 3, null); // an old-style entry with no pace
+  check('only good, hint-free answers of that mode count, oldest first',
+    storage.getPaceRatios(name, pace.MODE_DICTATION), [1.0, 1.2]);
+  check('modes are kept apart', storage.getPaceRatios(name, pace.MODE_FIND), [0.5]);
+  check('an unseen mode is empty', storage.getPaceRatios(name, pace.MODE_RECITE), []);
+  check('limit keeps the latest', storage.getPaceRatios(name, pace.MODE_DICTATION, 1), [1.2]);
+  console.warn = warn;
+});
+
+// ---------- masking (JS only) ----------
+
+section('mask.maskVerse', () => {
+  const verse = '하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열';
+  const hiddenOf = (parts) => parts.map((p, i) => (p.hidden ? i : -1)).filter((i) => i >= 0);
+
+  check('full hides nothing', hiddenOf(mask.maskVerse(verse, { mode: 'full' })), []);
+  check('head 50% keeps the opening and hides the end',
+    hiddenOf(mask.maskVerse(verse, { mode: 'head', ratio: 50 })), [5, 6, 7, 8, 9]);
+  check('tail 30% hides the opening',
+    hiddenOf(mask.maskVerse(verse, { mode: 'tail', ratio: 30 })), [0, 1, 2]);
+  check('random 70% hides seven words',
+    hiddenOf(mask.maskVerse(verse, { mode: 'random', ratio: 70, seed: 'a' })).length, 7);
+  check('the same seed hides the same words',
+    hiddenOf(mask.maskVerse(verse, { mode: 'random', ratio: 50, seed: 'x1' })),
+    hiddenOf(mask.maskVerse(verse, { mode: 'random', ratio: 50, seed: 'x1' })));
+  const seeds = ['a', 'b', 'c', 'd', 'e', 'f'].map(
+    (seed) => hiddenOf(mask.maskVerse(verse, { mode: 'random', ratio: 50, seed })).join());
+  check('different seeds hide different words', new Set(seeds).size > 1, true);
+  check('words are kept in order and intact',
+    mask.maskVerse(verse, { mode: 'random', ratio: 50, seed: 's' }).map((p) => p.text).join(' '), verse);
+
+  ['head', 'tail', 'random'].forEach((mode) => {
+    [30, 50, 70].forEach((ratio) => {
+      ['한 줄', '두 단어', '세 단어 짜리', verse].forEach((text) => {
+        const parts = mask.maskVerse(text, { mode, ratio, seed: 'k' });
+        const hidden = parts.filter((p) => p.hidden).length;
+        const wanted = parts.length >= 2;
+        check(`${mode} ${ratio}% on ${parts.length} words keeps one word visible and hides at least one`,
+          wanted ? hidden >= 1 && hidden <= parts.length - 1 : hidden === 0, true);
+      });
+    });
+  });
+
+  check('an empty verse has no words', mask.maskVerse('', { mode: 'head' }), []);
+  check('settings are sanitised', mask.normalizeMask({ mode: 'zig', ratio: 12 }), { mode: 'full', ratio: 50 });
+  check('valid settings are kept', mask.normalizeMask({ mode: 'tail', ratio: 70 }), { mode: 'tail', ratio: 70 });
+});
+
+// ---------- spacing-tolerant dictation grading (JS only) ----------
+
+section('grading.gradeDictation', () => {
+  const verse = '아무 것도 염려하지 말고 다만 모든 일에 기도와 간구로 너희 구할 것을 감사함으로 하나님께 아뢰라';
+  const score = (typed) => grading.gradeDictation(typed, verse).score;
+
+  check('exact', score(verse), 100);
+  check('one word run together', score(verse.replace('아무 것도', '아무것도')), 100);
+  check('no spaces at all', score(verse.replace(/ /g, '')), 100);
+  check('extra spaces inside words', score(verse.replace('하나님께', '하나님 께')), 100);
+  check('punctuation and case are ignored', score(`${verse.replace('말고', '말고,')}.`), 100);
+  check('one wrong word', score(verse.replace('다만', '오직')), 93);
+  check('a typo inside a word is partial credit', score(verse.replace('하나님께', '하나님깨')) > 90, true);
+  check('stopping half way scores about half',
+    Math.abs(score(verse.split(' ').slice(0, 8).join(' ')) - 53) <= 1, true);
+  check('nothing typed', score(''), 0);
+  check('unrelated text', score('전혀 다른 문장입니다'), 0);
+
+  const skipped = grading.gradeDictation(
+    verse.replace('다만 ', ''), verse).word_results.filter((w) => w.match === 'missing').length;
+  check('a skipped word is reported missing', skipped, 1);
+  check('the old positional grader would have failed the same spacing change',
+    grading.computeWordMatch(verse.replace('아무 것도', '아무것도'), verse).score < 50, true);
+
+  const started = Date.now();
+  const flood = grading.gradeDictation('가'.repeat(200000), verse);
+  check('a flood of text is graded quickly and as a miss',
+    flood.score === 0 && Date.now() - started < 2000, true);
+  check('a correct verse followed by a flood still earns most of the credit',
+    grading.gradeDictation(`${verse} ${'나'.repeat(50000)}`, verse).score >= 90, true);
+
+  check('English works too',
+    grading.gradeDictation('forgod so loved the world', 'For God so loved the world').score, 100);
+  check('same shape as computeWordMatch',
+    Object.keys(grading.gradeDictation('가', '가 나')).sort(),
+    Object.keys(grading.computeWordMatch('가', '가 나')).sort());
+  check('an empty answer is a full score, like computeWordMatch',
+    grading.gradeDictation('아무거나', '').score, 100);
+});
+
 // ---------- report ----------
 
 console.log('');
 if (failures.length) {
-  console.error(`${failures.length} of ${checks} checks disagree with the Python reference:\n`);
+  console.error(`${failures.length} of ${checks} checks failed (a ported function disagreeing with the Python reference, or a JS-only helper):\n`);
   failures.slice(0, 20).forEach((f) => console.error(`  ✗ ${f}\n`));
   if (failures.length > 20) console.error(`  … and ${failures.length - 20} more`);
   process.exit(1);
 }
-console.log(`✓ all ${checks} checks match the Python reference implementation`);
+console.log(`✓ all ${checks} checks pass — the ports match the Python reference implementation`);
