@@ -806,6 +806,181 @@ async function run() {
   await click(page, '하던 학습 이어서 하기');
   ok('목록에서 하던 학습으로 돌아온다', (await bodyText(page)).includes('진행 0 / 1'));
 
+  // ---------- theme 1: choosing how many verses to study ----------
+  console.log('\n테마 1 · 학습 구절 수');
+  const countFile = 'kpccw 2026 성경암송.csv';
+  const countLearner = '개수테스터';
+  const countLocations = await csvLocations(page, countFile);
+  const countTotal = countLocations.length;
+
+  const countValue = () => page.locator('#count-value').innerText();
+  const countDesc = () => page.locator('#count-desc').innerText();
+  const chooseCount = async (value) => {
+    await page.locator(`[data-act="count-set"][data-value="${value}"]`).click();
+    await page.waitForTimeout(120);
+  };
+  // The stepper is clicked from inside the page so a long run of presses stays quick.
+  const stepCount = async (direction, times = 1) => {
+    await page.evaluate(({ direction, times }) => {
+      for (let i = 0; i < times; i++) document.querySelector(`[data-act="count-${direction}"]`).click();
+    }, { direction, times });
+    await page.waitForTimeout(120);
+  };
+  const setSwitch = async (action, wanted) => {
+    const button = page.locator(`[data-act="${action}"]`);
+    if ((await button.getAttribute('aria-pressed') === 'true') !== wanted) {
+      await button.click();
+      await page.waitForTimeout(120);
+    }
+  };
+  /** The locations a session shows, found by skipping through `cards` of them. */
+  const walkSession = async (cards) => {
+    const seen = [];
+    for (let i = 0; i < cards; i++) {
+      seen.push(await currentLocation(page));
+      await click(page, '건너뛰기');
+    }
+    return seen;
+  };
+  const sessionSize = async () => Number(((await bodyText(page)).match(/진행 0 \/ (\d+)/) || [])[1]);
+  const openCountSetup = async (file = countFile) => {
+    await openVerseSetup(page, countLearner, file);
+    await page.waitForSelector('#count-value');
+  };
+
+  await openCountSetup();
+  ok('설정 화면에 학습할 구절 수가 있다', (await bodyText(page)).includes('학습할 구절 수'));
+  ok('구절 수는 처음에 전체다',
+    (await countValue()) === '전체' && (await countDesc()) === `전체 ${countTotal}구절`,
+    `${await countValue()} / ${await countDesc()}`);
+  const presets = [5, 10, 15, 20].filter((n) => n < countTotal);
+  ok('자주 쓰는 구절 수가 칩으로 나온다',
+    (await page.locator('[data-act="count-set"]').count()) === presets.length + 1);
+  await assertNoLeakedMarkup(page, '구절 수 선택');
+  await shot(page, '20-verse-count');
+
+  await chooseCount(10);
+  ok('칩으로 구절 수를 고른다',
+    (await countValue()) === '10' && (await countDesc()) === `전체 ${countTotal}구절 중 10구절`,
+    `${await countValue()} / ${await countDesc()}`);
+  ok('고른 칩이 눌린 상태로 보인다',
+    (await page.locator('[data-act="count-set"][data-value="10"]').getAttribute('aria-pressed')) === 'true');
+  await stepCount('up');
+  ok('+ 로 하나 늘린다', (await countValue()) === '11');
+  await stepCount('down', 2);
+  ok('− 로 하나씩 줄인다', (await countValue()) === '9');
+  await stepCount('down', countTotal);
+  ok('한 구절 아래로는 줄지 않는다', (await countValue()) === '1');
+  await stepCount('up', countTotal);
+  ok('끝까지 늘리면 전체가 된다', (await countValue()) === '전체');
+  await stepCount('down');
+  ok('전체에서 줄이면 한 구절이 빠진다', (await countValue()) === String(countTotal - 1));
+
+  // 7 verses, shuffled: the chosen number comes out, all different, and it survives a reload
+  await chooseCount(5);
+  await stepCount('up', 2);
+  await openCountSetup();
+  ok('고른 구절 수가 다시 열어도 남아 있다', (await countValue()) === '7', await countValue());
+  await setSwitch('toggle-shuffle', true);
+  await click(page, '시작하기');
+  await page.waitForSelector('.location');
+  ok('고른 개수만큼만 출제된다', (await sessionSize()) === 7, String(await sessionSize()));
+  const sevenSeen = await walkSession(7);
+  ok('섞어도 서로 다른 일곱 구절이 나온다',
+    new Set(sevenSeen).size === 7 && sevenSeen.every((loc) => countLocations.includes(loc)),
+    sevenSeen.join(', '));
+  ok('일곱 구절이 끝나면 큐가 끝난다', (await bodyText(page)).includes('건너뛴 구절이 7개'));
+
+  // SRS: the cut keeps due cards first, then new ones; what was studied today waits
+  await openCountSetup();
+  await setSwitch('toggle-shuffle', false);
+  await chooseCount(0);
+  await click(page, '테스트 · 암송');
+  await click(page, '시작하기');
+  await page.waitForSelector('.location');
+  for (let i = 0; i < 3; i++) {
+    await click(page, '구절 확인');
+    await click(page, '✅ 막힘없이 외웠어요');
+  }
+  ok('앞의 세 구절을 외운 것으로 기록했다', (await bodyText(page)).includes('진행 3 /'));
+
+  await openCountSetup();
+  await chooseCount(5);
+  await click(page, '테스트 · 암송');
+  await click(page, '시작하기');
+  await page.waitForSelector('.location');
+  const newFirst = await walkSession(5);
+  ok('오늘 외운 구절은 뒤로 미루고 새 구절부터 고른다',
+    newFirst.join() === countLocations.slice(3, 8).join(), newFirst.join(', '));
+
+  // two cards from the end of the file become due, as if reviewed long ago
+  await page.evaluate(({ name, file, locations }) => {
+    const key = `banki.v1.user.${name}`;
+    const record = JSON.parse(localStorage.getItem(key));
+    locations.forEach((location) => {
+      record.cards[`${file} ${location}`] = {
+        ease: 2.5, interval_days: 1, repetitions: 1,
+        last_reviewed: '1999-12-31', due_date: '2000-01-01', lapses: 0,
+      };
+    });
+    localStorage.setItem(key, JSON.stringify(record));
+  }, { name: countLearner, file: countFile, locations: countLocations.slice(-2) });
+  await openCountSetup();
+  ok('복습할 카드 수는 그대로 알려 준다',
+    (await bodyText(page)).includes('오늘 복습할 카드 2개'));
+  await click(page, '테스트 · 암송');
+  await click(page, '시작하기');
+  await page.waitForSelector('.location');
+  const dueFirst = await walkSession(5);
+  ok('복습할 구절이 먼저, 남는 자리는 새 구절로 채운다',
+    dueFirst.join() === [...countLocations.slice(-2), ...countLocations.slice(3, 6)].join(),
+    dueFirst.join(', '));
+
+  // the reading list: jump in and study that many from the picked verse
+  await openCountSetup();
+  await chooseCount(5);
+  await click(page, '전체 구절 읽어보기');
+  await page.waitForSelector('.readitem');
+  ok('읽기 화면에도 구절 수가 있다', (await countValue()) === '5');
+  ok('범위 설명에 구절 수가 들어간다', (await bodyText(page)).includes('최대 5구절'));
+  await assertNoLeakedMarkup(page, '읽기 · 구절 수');
+  await page.locator('.readitem').nth(2).locator('[data-mode="학습"]').click();
+  await page.waitForSelector('.location');
+  ok('고른 구절부터 정한 개수만 이어서 학습한다',
+    (await sessionSize()) === 5 && (await currentLocation(page)) === countLocations[2],
+    `${await sessionSize()}개 · ${await currentLocation(page)}`);
+  await click(page, '📖 목록');
+  await page.locator('.readitem').nth(countTotal - 2).locator('[data-mode="학습"]').click();
+  await page.waitForSelector('.location');
+  ok('끝 근처에서는 남은 구절만큼만 학습한다', (await sessionSize()) === 2, String(await sessionSize()));
+  await click(page, '📖 목록');
+  await click(page, '고른 구절만 학습');
+  ok('고른 구절만 학습하면 구절 수는 숨긴다', (await page.locator('#count-value').count()) === 0);
+
+  // a saved count bigger than another file means all of that file
+  await openCountSetup();
+  await chooseCount(presets[presets.length - 1] || 0);
+  const biggest = await countValue();
+  const smallFile = 'sample_verses.csv';
+  const smallTotal = (await csvLocations(page, smallFile)).length;
+  await page.selectOption('#verse-file', smallFile);
+  await page.waitForFunction(
+    (n) => document.querySelector('#count-desc')?.textContent.includes(`전체 ${n}구절`), smallTotal);
+  const smallShows = Number(biggest) >= smallTotal ? '전체' : biggest;
+  ok('작은 구절집에서는 넘치는 구절 수를 전체로 본다', (await countValue()) === smallShows,
+    `${biggest} → ${await countValue()}`);
+  await click(page, '시작하기');
+  await page.waitForSelector('.location');
+  ok('작은 구절집은 있는 만큼만 출제된다',
+    (await sessionSize()) === Math.min(Number(biggest) || Infinity, smallTotal), String(await sessionSize()));
+  await openCountSetup();
+  ok('큰 구절집으로 돌아오면 고른 구절 수가 그대로다', (await countValue()) === biggest, await countValue());
+  await chooseCount(0);
+  ok('전체를 고르면 모든 구절을 출제한다', (await countValue()) === '전체');
+  await click(page, '시작하기');
+  await page.waitForSelector('.location');
+  ok('전체로 되돌리면 모든 구절이 나온다', (await sessionSize()) === countTotal, String(await sessionSize()));
+
   // ---------- theme 3: reading the bank, then jumping into a question ----------
   console.log('\n테마 3 · 문제집 읽기 · 바로 풀기');
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -910,6 +1085,11 @@ async function run() {
 
   await click(mobile, '성경구절 암기');
   await mobile.waitForSelector('#verse-file');
+  await mobile.waitForSelector('#count-value');
+  const setupOverflow = await mobile.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  ok('구절 수 선택이 있어도 설정 화면에 가로 스크롤이 없다', setupOverflow <= 0,
+    `overflow ${setupOverflow}px`);
   await click(mobile, '전체 구절 읽어보기');
   await mobile.waitForSelector('.readitem');
   const readOverflow = await mobile.evaluate(() =>

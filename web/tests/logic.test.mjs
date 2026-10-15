@@ -17,6 +17,7 @@ import * as quiz from '../js/lib/quiz.js';
 import * as reference from '../js/lib/reference.js';
 import * as pace from '../js/lib/pace.js';
 import * as mask from '../js/lib/mask.js';
+import * as count from '../js/lib/count.js';
 import * as storage from '../js/lib/storage.js';
 import { shuffleSpread, makeRng } from '../js/lib/util.js';
 import { BIBLE_BOOK_EMOJIS, BIBLE_BOOK_HINTS } from '../js/lib/bible-data.js';
@@ -437,6 +438,59 @@ section('mask.maskVerse', () => {
   check('an empty verse has no words', mask.maskVerse('', { mode: 'head' }), []);
   check('settings are sanitised', mask.normalizeMask({ mode: 'zig', ratio: 12 }), { mode: 'full', ratio: 50 });
   check('valid settings are kept', mask.normalizeMask({ mode: 'tail', ratio: 70 }), { mode: 'tail', ratio: 70 });
+});
+
+// ---------- how many verses a session covers (JS only) ----------
+
+section('count (verses per session)', () => {
+  check('a plain count is kept', count.normalizeCount(10, 25), 10);
+  check('a count from storage may be a string', count.normalizeCount('7', 25), 7);
+  check('a fraction is rounded down', count.normalizeCount(7.9, 25), 7);
+  check('the whole set is "all"', count.normalizeCount(25, 25), 0);
+  check('more than the set is "all" too', count.normalizeCount(40, 13), 0);
+  [0, -3, NaN, null, undefined, '', 'abc', Infinity].forEach((raw) => {
+    check(`${String(raw)} is "all"`, count.normalizeCount(raw, 25), 0);
+  });
+  check('without a set size nothing is clamped', count.normalizeCount(500), 500);
+
+  check('"all" sizes the session to the set', count.sessionSize(0, 25), 25);
+  check('a chosen count sizes the session', count.sessionSize(10, 25), 10);
+  check('a saved count above a smaller set means the whole set', count.sessionSize(20, 13), 13);
+
+  check('minus from "all" drops one verse', count.stepCount(0, 25, -1), 24);
+  check('plus on the last verse is "all" again', count.stepCount(24, 25, 1), 0);
+  check('plus on "all" stays "all"', count.stepCount(0, 25, 1), 0);
+  check('minus stops at one verse', count.stepCount(1, 25, -1), 1);
+  check('plus and minus move one verse at a time', [count.stepCount(10, 25, 1), count.stepCount(10, 25, -1)], [11, 9]);
+  check('stepping from a saved count that no longer fits starts at the whole set',
+    count.stepCount(20, 13, -1), 12);
+
+  for (let total = 1; total <= 30; total++) {
+    let up = 1;
+    for (let i = 0; i < total + 2; i++) up = count.stepCount(up, total, 1);
+    let down = 0;
+    for (let i = 0; i < total + 2; i++) down = count.stepCount(down, total, -1);
+    check(`a ${total}-verse set steps up to "all" and down to one verse`,
+      [up, count.sessionSize(down, total)], [0, 1]);
+    [0, 1, 5, 20, 99].forEach((raw) => {
+      const size = count.sessionSize(raw, total);
+      check(`a session of ${raw || 'all'} over ${total} verses holds 1..${total}`,
+        size >= 1 && size <= total, true);
+    });
+  }
+
+  check('chips offered for 25 verses', count.countPresets(25), [5, 10, 15, 20]);
+  check('chips offered for 13 verses', count.countPresets(13), [5, 10]);
+  check('chips offered for 10 verses leave out ten itself', count.countPresets(10), [5]);
+  check('no chips for a tiny set', count.countPresets(5), []);
+  check('no chips for an empty set', count.countPresets(0), []);
+
+  const queue = [7, 3, 9, 1, 5];
+  check('the queue is cut after the chosen count', count.limitQueue(queue, 2), [7, 3]);
+  check('0 keeps the whole queue', count.limitQueue(queue, 0), queue);
+  check('a count above the queue keeps all of it', count.limitQueue(queue, 12), queue);
+  count.limitQueue(queue, 2);
+  check('the queue is not modified in place', queue, [7, 3, 9, 1, 5]);
 });
 
 // ---------- spacing-tolerant dictation grading (JS only) ----------
