@@ -12,6 +12,7 @@ import * as hints from '../lib/hints.js';
 import * as reference from '../lib/reference.js';
 import * as pace from '../lib/pace.js';
 import * as mask from '../lib/mask.js';
+import * as count from '../lib/count.js';
 import * as audio from '../lib/audio.js';
 import * as datasets from '../lib/datasets.js';
 import { verseCertificate } from '../lib/certificate.js';
@@ -43,6 +44,7 @@ function savedOpts() {
     autoRate: saved.autoRate !== false,
     maskMode: masking.mode,
     maskRatio: masking.ratio,
+    count: count.normalizeCount(saved.count),
   };
 }
 
@@ -53,7 +55,25 @@ function saveOpts() {
     autoRate: state.autoRate,
     maskMode: state.maskMode,
     maskRatio: state.maskRatio,
+    count: state.count,
   });
+}
+
+/**
+ * Verses in the set the count applies to; 0 while that set is still loading.
+ * Setup counts the picked file, the reading list the rows it is showing.
+ */
+function setSize() {
+  return state.stage === 'read' ? state.rows.length : (state.totals[state.file] || 0);
+}
+
+/** Learn how many verses the picked file holds, so the count can be shown against it. */
+function loadTotal() {
+  const file = state.file;
+  if (!file || file in state.totals) return Promise.resolve();
+  return datasets.loadVerses(file)
+    .then((rows) => { state.totals[file] = rows.length; })
+    .catch(() => { state.totals[file] = 0; }); // 시작하기 reports a file that cannot be read
 }
 
 function reset() {
@@ -67,6 +87,7 @@ function reset() {
     readVersion: '개역개정',
     readSearch: '',
     focusOnly: false,
+    totals: {},
     hasSession: false,
     appMode: '학습',
     testMode: '암송',
@@ -107,6 +128,11 @@ function reset() {
  * runs in CSV order from there to the end, or over that one verse alone when
  * 고른 구절만 is on. Picking a starting point beats the SRS/shuffle ordering —
  * the learner just said which verse they want.
+ *
+ * A chosen verse count cuts the queue last, so a short session keeps the front
+ * of whichever order applies: the cards most due with SRS, a random pick when
+ * shuffling, the first verses otherwise, and that many verses from the picked
+ * one when reading.
  */
 function startSession({ startIndex = null } = {}) {
   const indices = state.rows.map((_, i) => i);
@@ -130,7 +156,7 @@ function startSession({ startIndex = null } = {}) {
     }
   }
 
-  state.order = order;
+  state.order = count.limitQueue(order, state.count);
   state.cursor = 0;
   state.completed = new Set();
   state.skipped = new Set();
@@ -358,6 +384,47 @@ function maskPanel() {
   `;
 }
 
+/**
+ * How many verses to study this time: a stepper for an exact number and chips
+ * for the usual ones. Shared by the setup and reading screens.
+ */
+function countField() {
+  const total = setSize();
+  if (!total) {
+    // Counted as 0 means the file is empty or unreadable: nothing to choose from.
+    if (state.file in state.totals) return '';
+    return html`
+      <div class="field">
+        <span class="label">학습할 구절 수</span>
+        <p class="hint-text">구절 수를 불러오는 중…</p>
+      </div>
+    `;
+  }
+
+  const limit = count.normalizeCount(state.count, total);
+  const chip = (value, label, spoken) => `
+    <button class="chip" data-act="count-set" data-value="${value}"
+      aria-label="${spoken}" aria-pressed="${value === limit}">${label}</button>`;
+  return html`
+    <div class="field">
+      <div class="row-between">
+        <span class="label" style="margin:0">학습할 구절 수<br>
+          <span class="segmented__desc" id="count-desc">${limit ? `전체 ${total}구절 중 ${limit}구절` : `전체 ${total}구절`}</span>
+        </span>
+        <div class="stepper" style="width:150px">
+          <button class="btn btn--sm btn--ghost" data-act="count-down" aria-label="구절 수 줄이기">−</button>
+          <span class="stepper__value" id="count-value">${limit || '전체'}</span>
+          <button class="btn btn--sm btn--ghost" data-act="count-up" aria-label="구절 수 늘리기">+</button>
+        </div>
+      </div>
+      <div class="chips">
+        ${count.countPresets(total).map((n) => raw(chip(n, n, `${n}구절`)))}
+        ${raw(chip(0, '전체', `전체 ${total}구절`))}
+      </div>
+    </div>
+  `;
+}
+
 function renderSetup() {
   if (state.loading) {
     return html`
@@ -421,6 +488,7 @@ function renderSetup() {
         ${dueCount > 0
           ? raw(`<div class="flash flash--info">📅 오늘 복습할 카드 ${dueCount}개</div>`)
           : ''}
+        ${raw(countField())}
         ${raw(toggle('toggle-srs', '간격 반복 학습 (SRS)', state.useSrs,
           '어려웠던 카드는 자주, 쉬운 카드는 드물게 나옵니다'))}
         ${state.useSrs && state.appMode !== '학습'
@@ -492,9 +560,10 @@ function readItem(row, index) {
 }
 
 function renderRead() {
-  const scopeLabel = state.focusOnly
-    ? '고른 구절 하나만 학습합니다'
-    : '고른 구절부터 마지막 구절까지 이어서 학습합니다';
+  const limit = count.normalizeCount(state.count, state.rows.length);
+  let scopeLabel = '고른 구절부터 마지막 구절까지 이어서 학습합니다';
+  if (state.focusOnly) scopeLabel = '고른 구절 하나만 학습합니다';
+  else if (limit) scopeLabel = `고른 구절부터 최대 ${limit}구절을 이어서 학습합니다`;
 
   return html`
     ${raw(appbar({ title: '📖 성경구절 암기', sub: '읽기', font: true }))}
@@ -516,6 +585,7 @@ function renderRead() {
           </div>
         </div>
         ${raw(toggle('toggle-focus-only', '고른 구절만 학습', state.focusOnly, scopeLabel))}
+        ${state.focusOnly ? '' : raw(countField())}
       </div>
 
       ${state.hasSession && !state.allDone
@@ -950,8 +1020,11 @@ export default {
       .then((manifest) => {
         state.files = manifest.verse || [];
         state.file = state.files[0] || '';
-        state.loading = false;
         if (!state.files.length) state.error = '구절집 CSV를 찾지 못했습니다.';
+        return loadTotal();
+      })
+      .then(() => {
+        state.loading = false;
         router.rerender();
       })
       .catch((err) => {
@@ -981,9 +1054,17 @@ export default {
   },
 
   onChange(action, el) {
-    if (action === 'file') state.file = el.value;
-    else if (action === 'version') state.version = el.value;
-    else if (action === 'name') {
+    if (action === 'file') {
+      state.file = el.value;
+      // A file seen before is known already; a new one fills in its count shortly.
+      if (!(state.file in state.totals)) {
+        loadTotal().then(() => {
+          if (state.stage === 'setup') router.rerender();
+        });
+      }
+    } else if (action === 'version') {
+      state.version = el.value;
+    } else if (action === 'name') {
       state.userName = el.value.trim();
       if (state.userName) storage.setPref('lastUser', state.userName);
     }
@@ -1029,6 +1110,17 @@ export default {
         saveOpts();
         break;
 
+      case 'count-set':
+        state.count = count.normalizeCount(el.dataset.value, setSize());
+        saveOpts();
+        break;
+
+      case 'count-up':
+      case 'count-down':
+        state.count = count.stepCount(state.count, setSize(), action === 'count-up' ? 1 : -1);
+        saveOpts();
+        break;
+
       case 'start':
       case 'read': {
         const wantsReading = action === 'read';
@@ -1040,6 +1132,7 @@ export default {
               return;
             }
             state.rows = rows;
+            state.totals[state.file] = rows.length;
             if (state.userName) storage.getOrCreateUser(state.userName);
             if (wantsReading) {
               state.readVersion = state.version;
